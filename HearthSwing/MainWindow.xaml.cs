@@ -50,10 +50,17 @@ public partial class MainWindow : Window
         services.AddSingleton<IProfileManager, ProfileManager>();
         services.AddSingleton<ICacheProtector, CacheProtector>();
         services.AddSingleton<IProcessMonitor, ProcessMonitor>();
+        services.AddSingleton<IUpdateService, UpdateService>();
 
         services.AddSingleton<Action<string, string>>(_ =>
             (message, title) =>
                 MessageBox.Show(message, title, MessageBoxButton.OK, MessageBoxImage.Warning)
+        );
+
+        services.AddSingleton<Func<string, string, bool>>(_ =>
+            (message, title) =>
+                MessageBox.Show(message, title, MessageBoxButton.YesNo, MessageBoxImage.Question)
+                == MessageBoxResult.Yes
         );
 
         services.AddSingleton<MainViewModel>();

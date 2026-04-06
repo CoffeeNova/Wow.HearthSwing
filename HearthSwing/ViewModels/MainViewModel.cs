@@ -16,7 +16,9 @@ public partial class MainViewModel : ObservableObject
     private readonly ICacheProtector _cacheProtector;
     private readonly IProcessMonitor _processMonitor;
     private readonly IFileSystem _fs;
+    private readonly IUpdateService _updateService;
     private readonly Action<string, string> _showError;
+    private readonly Func<string, string, bool> _showConfirm;
     private CancellationTokenSource? _unlockCts;
 
     [ObservableProperty]
@@ -64,6 +66,9 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string _newProfileName = string.Empty;
 
+    [ObservableProperty]
+    private bool _isCheckingForUpdate;
+
     public ObservableCollection<ProfileInfo> Profiles { get; } = [];
 
     public string AppVersion { get; } = GetVersion();
@@ -88,7 +93,9 @@ public partial class MainViewModel : ObservableObject
         ICacheProtector cacheProtector,
         IProcessMonitor processMonitor,
         IFileSystem fileSystem,
-        Action<string, string> showError
+        IUpdateService updateService,
+        Action<string, string> showError,
+        Func<string, string, bool> showConfirm
     )
     {
         _settingsService = settingsService;
@@ -96,10 +103,13 @@ public partial class MainViewModel : ObservableObject
         _cacheProtector = cacheProtector;
         _processMonitor = processMonitor;
         _fs = fileSystem;
+        _updateService = updateService;
         _showError = showError;
+        _showConfirm = showConfirm;
 
         _cacheProtector.Log += AppendLog;
         _processMonitor.Log += AppendLog;
+        _updateService.Log += AppendLog;
 
         GamePath = settingsService.Current.GamePath;
         ProfilesPath = settingsService.Current.ProfilesPath;
@@ -267,6 +277,52 @@ public partial class MainViewModel : ObservableObject
     private void ToggleHowToUse()
     {
         IsHowToUseVisible = !IsHowToUseVisible;
+    }
+
+    [RelayCommand]
+    private async Task CheckForUpdateAsync()
+    {
+        if (IsCheckingForUpdate)
+            return;
+
+        IsCheckingForUpdate = true;
+        try
+        {
+            AppendLog("Checking for updates...");
+            var result = await _updateService.CheckForUpdateAsync(
+                AppVersion,
+                CancellationToken.None
+            );
+
+            if (result is null)
+            {
+                AppendLog($"You're running the latest version ({AppVersion}).");
+                return;
+            }
+
+            AppendLog($"New version available: {result.Version} (current: {AppVersion}).");
+
+            if (
+                !_showConfirm(
+                    $"Version {result.Version} is available.\nUpdate now?",
+                    "Update Available"
+                )
+            )
+            {
+                AppendLog("Update cancelled by user.");
+                return;
+            }
+
+            await _updateService.ApplyUpdateAsync(result, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"ERROR: Update check failed — {ex.Message}");
+        }
+        finally
+        {
+            IsCheckingForUpdate = false;
+        }
     }
 
     [RelayCommand]

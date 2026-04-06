@@ -545,14 +545,23 @@
             <Run Text="Author: " />
             <Run Text="CoffeeNova" FontWeight="SemiBold" />
           </TextBlock>
-          <Button
-            Content="Close"
-            Style="{StaticResource ActionBtn}"
-            Background="{StaticResource TextSecondary}"
-            Command="{Binding ToggleAboutCommand}"
-            HorizontalAlignment="Right"
-            MinWidth="80"
-          />
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button
+              Content="Check for updates"
+              Style="{StaticResource ActionBtn}"
+              Background="{StaticResource CardBg}"
+              Command="{Binding CheckForUpdateCommand}"
+              MinWidth="140"
+              Margin="0,0,8,0"
+            />
+            <Button
+              Content="Close"
+              Style="{StaticResource ActionBtn}"
+              Background="{StaticResource TextSecondary}"
+              Command="{Binding ToggleAboutCommand}"
+              MinWidth="80"
+            />
+          </StackPanel>
         </StackPanel>
       </Border>
     </Border>
