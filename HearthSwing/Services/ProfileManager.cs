@@ -40,7 +40,7 @@ public sealed class ProfileManager : IProfileManager
             );
         }
 
-        MarkOrAddActiveProfile(profiles, activeId);
+        MarkActiveProfile(profiles, activeId);
 
         return profiles.OrderBy(p => p.Id, StringComparer.OrdinalIgnoreCase).ToList();
     }
@@ -78,9 +78,14 @@ public sealed class ProfileManager : IProfileManager
             throw new InvalidOperationException($"Target profile folder not found: {targetParked}");
 
         if (_fs.DirectoryExists(wtfActive))
-            ParkOrBackupCurrentWtf(currentProfile, wtfActive, log);
+        {
+            log($"Removing current WTF...");
+            ClearReadOnlyAttributes(wtfActive);
+            _fs.DeleteDirectory(wtfActive, recursive: true);
+        }
 
-        ActivateProfile(target, targetParked, wtfActive, currentProfile, log);
+        log($"Activating '{target.DisplayName}': {target.Id}/ → WTF");
+        CopyDirectory(targetParked, wtfActive);
 
         WriteActiveMarker(target.Id);
         log($"Profile switched to '{target.DisplayName}'.");
@@ -99,6 +104,7 @@ public sealed class ProfileManager : IProfileManager
         if (_fs.DirectoryExists(dest))
         {
             log($"Overwriting existing profile '{profileId}'...");
+            ClearReadOnlyAttributes(dest);
             _fs.DeleteDirectory(dest, recursive: true);
         }
 
@@ -108,7 +114,7 @@ public sealed class ProfileManager : IProfileManager
         log($"Profile '{profileId}' saved.");
     }
 
-    private void MarkOrAddActiveProfile(List<ProfileInfo> profiles, string activeId)
+    private void MarkActiveProfile(List<ProfileInfo> profiles, string activeId)
     {
         if (string.IsNullOrEmpty(activeId))
             return;
@@ -118,127 +124,7 @@ public sealed class ProfileManager : IProfileManager
         );
 
         if (existing is not null)
-        {
             existing.IsActive = true;
-        }
-        else
-        {
-            // Folder is absent because it's currently the active WTF
-            profiles.Add(
-                new ProfileInfo
-                {
-                    Id = activeId,
-                    FolderPath = Path.Combine(ProfilesPath, activeId),
-                    IsActive = true,
-                }
-            );
-        }
-    }
-
-    private void ParkOrBackupCurrentWtf(
-        ProfileInfo? currentProfile,
-        string wtfActive,
-        Action<string> log
-    )
-    {
-        if (currentProfile is not null)
-            ParkCurrentProfile(currentProfile, wtfActive, log);
-        else
-            BackupUnknownWtf(wtfActive, log);
-    }
-
-    private void ParkCurrentProfile(
-        ProfileInfo currentProfile,
-        string wtfActive,
-        Action<string> log
-    )
-    {
-        var currentParked = currentProfile.FolderPath;
-
-        if (_fs.DirectoryExists(currentParked))
-            throw new InvalidOperationException(
-                $"Cannot park current profile: folder already exists: {currentParked}. "
-                    + "This may indicate a broken state — check your profiles folder."
-            );
-
-        log($"Parking '{currentProfile.DisplayName}': WTF → {currentProfile.Id}/");
-        try
-        {
-            MoveDirectory(wtfActive, currentParked);
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException(
-                $"Failed to park current profile: {ex.Message}. No changes were made.",
-                ex
-            );
-        }
-    }
-
-    /// <summary>
-    /// No active marker exists — WTF is present but we don't know which profile owns it.
-    /// Back it up with a timestamped name before overwriting.
-    /// </summary>
-    private void BackupUnknownWtf(string wtfActive, Action<string> log)
-    {
-        var backupName = $"_backup_{DateTime.Now:yyyyMMdd_HHmmss}";
-        var backupPath = Path.Combine(ProfilesPath, backupName);
-        log($"No active profile known. Backing up current WTF → {backupName}/");
-        try
-        {
-            if (!_fs.DirectoryExists(ProfilesPath))
-                _fs.CreateDirectory(ProfilesPath);
-            MoveDirectory(wtfActive, backupPath);
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException(
-                $"Failed to back up current WTF: {ex.Message}. No changes were made.",
-                ex
-            );
-        }
-    }
-
-    private void ActivateProfile(
-        ProfileInfo target,
-        string targetParked,
-        string wtfActive,
-        ProfileInfo? currentProfile,
-        Action<string> log
-    )
-    {
-        log($"Activating '{target.DisplayName}': {target.Id}/ → WTF");
-        try
-        {
-            MoveDirectory(targetParked, wtfActive);
-        }
-        catch (Exception ex)
-        {
-            RollbackParkedProfile(currentProfile, wtfActive, log);
-            throw new InvalidOperationException(
-                $"Failed to activate target profile: {ex.Message}. Attempted rollback.",
-                ex
-            );
-        }
-    }
-
-    private void RollbackParkedProfile(
-        ProfileInfo? currentProfile,
-        string wtfActive,
-        Action<string> log
-    )
-    {
-        if (currentProfile is null)
-            return;
-
-        log("ERROR: Rolling back...");
-        try
-        {
-            MoveDirectory(currentProfile.FolderPath, wtfActive);
-        }
-        catch
-        { /* best effort */
-        }
     }
 
     private string ReadActiveMarker()
@@ -263,30 +149,6 @@ public sealed class ProfileManager : IProfileManager
 
         var markerPath = Path.Combine(ProfilesPath, ActiveMarker);
         _fs.WriteAllText(markerPath, profileId);
-    }
-
-    /// <summary>
-    /// Same-volume uses rename for speed; cross-volume falls back to copy + delete.
-    /// </summary>
-    private void MoveDirectory(string source, string dest)
-    {
-        ClearReadOnlyAttributes(source);
-
-        if (IsSameVolume(source, dest))
-        {
-            _fs.MoveDirectory(source, dest);
-        }
-        else
-        {
-            CopyDirectory(source, dest);
-            _fs.DeleteDirectory(source, recursive: true);
-        }
-    }
-
-    private static bool IsSameVolume(string path1, string path2)
-    {
-        return Path.GetPathRoot(Path.GetFullPath(path1))!
-            .Equals(Path.GetPathRoot(Path.GetFullPath(path2)), StringComparison.OrdinalIgnoreCase);
     }
 
     private void ClearReadOnlyAttributes(string directory)

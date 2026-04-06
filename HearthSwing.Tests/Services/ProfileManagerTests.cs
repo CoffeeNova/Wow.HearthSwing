@@ -25,8 +25,7 @@ public class ProfileManagerTests
         _fs.FileExists(Arg.Any<string>()).Returns(false);
         _fs.DirectoryExists(Arg.Any<string>()).Returns(false);
         _fs.ReadAllText(Arg.Any<string>()).Returns(string.Empty);
-        _fs.GetFiles(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<SearchOption>())
-            .Returns([]);
+        _fs.GetFiles(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<SearchOption>()).Returns([]);
         _fs.GetDirectories(Arg.Any<string>()).Returns([]);
 
         _settings = _fixture.Freeze<ISettingsService>();
@@ -68,7 +67,7 @@ public class ProfileManagerTests
     }
 
     [Test]
-    public void DiscoverProfiles_WhenActiveMarkerPointsToAbsentFolder_AddsActiveProfile()
+    public void DiscoverProfiles_WhenActiveMarkerPointsToAbsentFolder_DoesNotAddGhostEntry()
     {
         // Arrange
         var markerPath = @"C:\Game\Profiles\.active";
@@ -81,10 +80,9 @@ public class ProfileManagerTests
         var result = _sut.DiscoverProfiles();
 
         // Assert
-        result.Count.ShouldBe(2);
-        var alice = result.First(p => p.Id == "Alice");
-        alice.IsActive.ShouldBeTrue();
-        alice.FolderPath.ShouldBe(@"C:\Game\Profiles\Alice");
+        result.Count.ShouldBe(1);
+        result[0].Id.ShouldBe("Bob");
+        result[0].IsActive.ShouldBeFalse();
     }
 
     [Test]
@@ -191,17 +189,21 @@ public class ProfileManagerTests
 
         // Assert
         logMessages.ShouldContain(m => m.Contains("already active"));
-        _fs.DidNotReceive().MoveDirectory(Arg.Any<string>(), Arg.Any<string>());
+        _fs.DidNotReceive().DeleteDirectory(Arg.Any<string>(), Arg.Any<bool>());
+        _fs.DidNotReceive().CopyFile(Arg.Any<string>(), Arg.Any<string>());
     }
 
     [Test]
-    public void SwitchTo_WhenNoWtfAndNoCurrentProfile_MovesTargetToWtf()
+    public void SwitchTo_WhenNoWtfExists_CopiesTargetToWtf()
     {
         // Arrange
         var target = new ProfileInfo { Id = "Alice", FolderPath = @"C:\Game\Profiles\Alice" };
         _fs.DirectoryExists(@"C:\Game\Profiles\Alice").Returns(true);
         _fs.DirectoryExists(@"C:\Game\WTF").Returns(false);
         _fs.DirectoryExists(@"C:\Game\Profiles").Returns(true);
+        _fs.GetFiles(@"C:\Game\Profiles\Alice", "*", SearchOption.TopDirectoryOnly)
+            .Returns([@"C:\Game\Profiles\Alice\Config.wtf"]);
+        _fs.GetDirectories(@"C:\Game\Profiles\Alice").Returns([]);
 
         var logMessages = new List<string>();
 
@@ -209,24 +211,28 @@ public class ProfileManagerTests
         _sut.SwitchTo(target, msg => logMessages.Add(msg));
 
         // Assert
-        _fs.Received().MoveDirectory(@"C:\Game\Profiles\Alice", @"C:\Game\WTF");
+        _fs.DidNotReceive().DeleteDirectory(@"C:\Game\WTF", true);
+        _fs.Received().CreateDirectory(@"C:\Game\WTF");
+        _fs.Received().CopyFile(@"C:\Game\Profiles\Alice\Config.wtf", @"C:\Game\WTF\Config.wtf");
         _fs.Received().WriteAllText(@"C:\Game\Profiles\.active", "Alice");
         logMessages.ShouldContain(m => m.Contains("Profile switched to"));
     }
 
     [Test]
-    public void SwitchTo_WhenCurrentProfileExists_ParksCurrentThenActivatesTarget()
+    public void SwitchTo_WhenWtfExists_DeletesWtfThenCopiesTarget()
     {
-        // Arrange — set up "Bob" as active
+        // Arrange
         var markerPath = @"C:\Game\Profiles\.active";
         _fs.FileExists(markerPath).Returns(true);
         _fs.ReadAllText(markerPath).Returns("Bob");
         _fs.DirectoryExists(@"C:\Game\WTF").Returns(true);
-        _fs.DirectoryExists(@"C:\Game\Profiles\Bob").Returns(false);
+        _fs.DirectoryExists(@"C:\Game\Profiles").Returns(true);
 
         var target = new ProfileInfo { Id = "Alice", FolderPath = @"C:\Game\Profiles\Alice" };
         _fs.DirectoryExists(@"C:\Game\Profiles\Alice").Returns(true);
-        _fs.DirectoryExists(@"C:\Game\Profiles").Returns(true);
+        _fs.GetFiles(@"C:\Game\Profiles\Alice", "*", SearchOption.TopDirectoryOnly)
+            .Returns([@"C:\Game\Profiles\Alice\Config.wtf"]);
+        _fs.GetDirectories(@"C:\Game\Profiles\Alice").Returns([]);
 
         var logMessages = new List<string>();
 
@@ -236,90 +242,63 @@ public class ProfileManagerTests
         // Assert
         Received.InOrder(() =>
         {
-            _fs.MoveDirectory(@"C:\Game\WTF", @"C:\Game\Profiles\Bob");
-            _fs.MoveDirectory(@"C:\Game\Profiles\Alice", @"C:\Game\WTF");
+            _fs.DeleteDirectory(@"C:\Game\WTF", true);
+            _fs.CreateDirectory(@"C:\Game\WTF");
+            _fs.CopyFile(@"C:\Game\Profiles\Alice\Config.wtf", @"C:\Game\WTF\Config.wtf");
         });
-        logMessages.ShouldContain(m => m.Contains("Parking"));
+        logMessages.ShouldContain(m => m.Contains("Removing current WTF"));
         logMessages.ShouldContain(m => m.Contains("Activating"));
     }
 
     [Test]
-    public void SwitchTo_WhenParkedFolderAlreadyExists_ThrowsInvalidOperationException()
-    {
-        // Arrange — "Bob" is active, but Bob's profile folder already exists (broken state)
-        var markerPath = @"C:\Game\Profiles\.active";
-        _fs.FileExists(markerPath).Returns(true);
-        _fs.ReadAllText(markerPath).Returns("Bob");
-        _fs.DirectoryExists(@"C:\Game\WTF").Returns(true);
-        _fs.DirectoryExists(@"C:\Game\Profiles\Bob").Returns(true);
-
-        var target = new ProfileInfo { Id = "Alice", FolderPath = @"C:\Game\Profiles\Alice" };
-        _fs.DirectoryExists(@"C:\Game\Profiles\Alice").Returns(true);
-
-        // Act & Assert
-        var ex = Should.Throw<InvalidOperationException>(() => _sut.SwitchTo(target, _ => { }));
-        ex.Message.ShouldContain("Cannot park current profile");
-    }
-
-    [Test]
-    public void SwitchTo_WhenParkFails_ThrowsWithOriginalMessage()
+    public void SwitchTo_WhenWtfHasReadOnlyFiles_ClearsAttributesBeforeDelete()
     {
         // Arrange
-        var markerPath = @"C:\Game\Profiles\.active";
-        _fs.FileExists(markerPath).Returns(true);
-        _fs.ReadAllText(markerPath).Returns("Bob");
+        var readOnlyFile = @"C:\Game\WTF\Account\macros-cache.old";
         _fs.DirectoryExists(@"C:\Game\WTF").Returns(true);
-        _fs.DirectoryExists(@"C:\Game\Profiles\Bob").Returns(false);
-        _fs.When(x => x.MoveDirectory(@"C:\Game\WTF", @"C:\Game\Profiles\Bob"))
-            .Do(_ => throw new IOException("disk full"));
-
-        var target = new ProfileInfo { Id = "Alice", FolderPath = @"C:\Game\Profiles\Alice" };
-        _fs.DirectoryExists(@"C:\Game\Profiles\Alice").Returns(true);
-
-        // Act & Assert
-        var ex = Should.Throw<InvalidOperationException>(() => _sut.SwitchTo(target, _ => { }));
-        ex.Message.ShouldContain("Failed to park current profile");
-        ex.Message.ShouldContain("disk full");
-    }
-
-    [Test]
-    public void SwitchTo_WhenActivationFails_RollsBackParkedProfile()
-    {
-        // Arrange — "Bob" is active, parking succeeds, activation fails
-        var markerPath = @"C:\Game\Profiles\.active";
-        _fs.FileExists(markerPath).Returns(true);
-        _fs.ReadAllText(markerPath).Returns("Bob");
-        _fs.DirectoryExists(@"C:\Game\WTF").Returns(true);
-        _fs.DirectoryExists(@"C:\Game\Profiles\Bob").Returns(false);
-        _fs.DirectoryExists(@"C:\Game\Profiles\Alice").Returns(true);
         _fs.DirectoryExists(@"C:\Game\Profiles").Returns(true);
-
-        // First MoveDirectory (park) succeeds, second (activate) fails
-        var callCount = 0;
-        _fs.When(x => x.MoveDirectory(Arg.Any<string>(), Arg.Any<string>()))
-            .Do(_ =>
-            {
-                callCount++;
-                if (callCount == 2)
-                    throw new IOException("permission denied");
-            });
-
         var target = new ProfileInfo { Id = "Alice", FolderPath = @"C:\Game\Profiles\Alice" };
-        var logMessages = new List<string>();
+        _fs.DirectoryExists(@"C:\Game\Profiles\Alice").Returns(true);
+        _fs.GetFiles(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<SearchOption>())
+            .Returns(info =>
+            {
+                var dir = info.ArgAt<string>(0);
+                var opt = info.ArgAt<SearchOption>(2);
+                if (dir == @"C:\Game\WTF" && opt == SearchOption.AllDirectories)
+                    return new[] { readOnlyFile };
+                return Array.Empty<string>();
+            });
+        _fs.GetAttributes(readOnlyFile).Returns(FileAttributes.ReadOnly);
 
-        // Act & Assert
-        var ex = Should.Throw<InvalidOperationException>(() =>
-            _sut.SwitchTo(target, msg => logMessages.Add(msg))
-        );
-        ex.Message.ShouldContain("Failed to activate target profile");
-        logMessages.ShouldContain(m => m.Contains("Rolling back"));
+        // Act
+        _sut.SwitchTo(target, _ => { });
 
-        // Rollback = 3rd MoveDirectory call
-        callCount.ShouldBeGreaterThanOrEqualTo(3);
+        // Assert
+        _fs.Received().SetAttributes(readOnlyFile, FileAttributes.None);
+        _fs.Received().DeleteDirectory(@"C:\Game\WTF", true);
     }
 
     [Test]
-    public void SwitchTo_WhenWtfExistsButNoActiveMarker_BacksUpWtfBeforeSwitch()
+    public void SwitchTo_ProfileFolderRemainsInProfilesAfterSwitch()
+    {
+        // Arrange
+        var target = new ProfileInfo { Id = "Alice", FolderPath = @"C:\Game\Profiles\Alice" };
+        _fs.DirectoryExists(@"C:\Game\Profiles\Alice").Returns(true);
+        _fs.DirectoryExists(@"C:\Game\WTF").Returns(false);
+        _fs.DirectoryExists(@"C:\Game\Profiles").Returns(true);
+        _fs.GetFiles(@"C:\Game\Profiles\Alice", "*", SearchOption.TopDirectoryOnly).Returns([]);
+        _fs.GetDirectories(@"C:\Game\Profiles\Alice").Returns([]);
+
+        // Act
+        _sut.SwitchTo(target, _ => { });
+
+        // Assert — profile folder is never moved or deleted
+        _fs.DidNotReceive().DeleteDirectory(@"C:\Game\Profiles\Alice", Arg.Any<bool>());
+        _fs.DidNotReceive().MoveDirectory(Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Test]
+    public void SwitchTo_WhenWtfExistsButNoActiveMarker_DeletesWtfAndCopiesTarget()
     {
         // Arrange — WTF exists but no .active marker
         _fs.DirectoryExists(@"C:\Game\WTF").Returns(true);
@@ -327,6 +306,8 @@ public class ProfileManagerTests
 
         var target = new ProfileInfo { Id = "Alice", FolderPath = @"C:\Game\Profiles\Alice" };
         _fs.DirectoryExists(@"C:\Game\Profiles\Alice").Returns(true);
+        _fs.GetFiles(@"C:\Game\Profiles\Alice", "*", SearchOption.TopDirectoryOnly).Returns([]);
+        _fs.GetDirectories(@"C:\Game\Profiles\Alice").Returns([]);
 
         var logMessages = new List<string>();
 
@@ -334,27 +315,10 @@ public class ProfileManagerTests
         _sut.SwitchTo(target, msg => logMessages.Add(msg));
 
         // Assert
-        logMessages.ShouldContain(m => m.Contains("No active profile known"));
-        logMessages.ShouldContain(m => m.Contains("Backing up"));
-        // First move = backup WTF → _backup_*, second = Alice → WTF
-        _fs.Received(2).MoveDirectory(Arg.Any<string>(), Arg.Any<string>());
-    }
-
-    [Test]
-    public void SwitchTo_WhenBackupFails_ThrowsWithoutModifyingTarget()
-    {
-        // Arrange — WTF exists, no marker, backup move fails
-        _fs.DirectoryExists(@"C:\Game\WTF").Returns(true);
-        _fs.DirectoryExists(@"C:\Game\Profiles").Returns(true);
-        _fs.When(x => x.MoveDirectory(Arg.Any<string>(), Arg.Any<string>()))
-            .Do(_ => throw new IOException("backup failed"));
-
-        var target = new ProfileInfo { Id = "Alice", FolderPath = @"C:\Game\Profiles\Alice" };
-        _fs.DirectoryExists(@"C:\Game\Profiles\Alice").Returns(true);
-
-        // Act & Assert
-        var ex = Should.Throw<InvalidOperationException>(() => _sut.SwitchTo(target, _ => { }));
-        ex.Message.ShouldContain("Failed to back up current WTF");
+        _fs.Received().DeleteDirectory(@"C:\Game\WTF", true);
+        _fs.Received().CreateDirectory(@"C:\Game\WTF");
+        logMessages.ShouldContain(m => m.Contains("Removing current WTF"));
+        logMessages.ShouldContain(m => m.Contains("Profile switched to"));
     }
 
     [Test]
@@ -388,15 +352,24 @@ public class ProfileManagerTests
     }
 
     [Test]
-    public void SaveCurrentAsProfile_WhenProfileAlreadyExists_DeletesThenCopies()
+    public void SaveCurrentAsProfile_WhenProfileAlreadyExists_ClearsReadOnlyThenDeletes()
     {
         // Arrange
+        var readOnlyFile = @"C:\Game\Profiles\Test\Account\macros-cache.old";
         _fs.DirectoryExists(@"C:\Game\WTF").Returns(true);
         _fs.DirectoryExists(@"C:\Game\Profiles").Returns(true);
         _fs.DirectoryExists(@"C:\Game\Profiles\Test").Returns(true);
-        _fs.GetFiles(@"C:\Game\WTF", "*", SearchOption.TopDirectoryOnly)
-            .Returns([]);
-        _fs.GetDirectories(@"C:\Game\WTF").Returns([]);
+        _fs.GetDirectories(Arg.Any<string>()).Returns([]);
+        _fs.GetFiles(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<SearchOption>())
+            .Returns(info =>
+            {
+                var dir = info.ArgAt<string>(0);
+                var opt = info.ArgAt<SearchOption>(2);
+                if (dir == @"C:\Game\Profiles\Test" && opt == SearchOption.AllDirectories)
+                    return new[] { readOnlyFile };
+                return Array.Empty<string>();
+            });
+        _fs.GetAttributes(readOnlyFile).Returns(FileAttributes.ReadOnly);
 
         var logMessages = new List<string>();
 
@@ -404,6 +377,9 @@ public class ProfileManagerTests
         _sut.SaveCurrentAsProfile("Test", msg => logMessages.Add(msg));
 
         // Assert
+        _fs.Received().GetFiles(@"C:\Game\Profiles\Test", "*", SearchOption.AllDirectories);
+        _fs.Received().GetAttributes(readOnlyFile);
+        _fs.Received().SetAttributes(readOnlyFile, FileAttributes.None);
         _fs.Received().DeleteDirectory(@"C:\Game\Profiles\Test", true);
         logMessages.ShouldContain(m => m.Contains("Overwriting"));
     }
@@ -414,8 +390,7 @@ public class ProfileManagerTests
         // Arrange
         _fs.DirectoryExists(@"C:\Game\WTF").Returns(true);
         _fs.DirectoryExists(@"C:\Game\Profiles").Returns(false);
-        _fs.GetFiles(@"C:\Game\WTF", "*", SearchOption.TopDirectoryOnly)
-            .Returns([]);
+        _fs.GetFiles(@"C:\Game\WTF", "*", SearchOption.TopDirectoryOnly).Returns([]);
         _fs.GetDirectories(@"C:\Game\WTF").Returns([]);
 
         // Act

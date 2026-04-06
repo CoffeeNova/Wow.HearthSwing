@@ -175,6 +175,7 @@ public partial class MainViewModel : ObservableObject
         IsBusy = true;
         try
         {
+            UnlockCacheIfNeeded();
             _profileManager.SaveCurrentAsProfile(name, AppendLog);
             RefreshState();
             StatusText = $"Profile '{name}' saved.";
