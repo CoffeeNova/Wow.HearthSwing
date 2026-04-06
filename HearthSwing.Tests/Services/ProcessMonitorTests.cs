@@ -22,7 +22,7 @@ public class ProcessMonitorTests
         _processManager = _fixture.Freeze<IProcessManager>();
         _fs = _fixture.Freeze<IFileSystem>();
 
-        _processManager.GetProcessesByName(Arg.Any<string>()).Returns(Array.Empty<Process>());
+        _processManager.GetProcessesByName(Arg.Any<string>()).Returns([]);
 
         _sut = new ProcessMonitor(_processManager, _fs);
     }
@@ -32,7 +32,7 @@ public class ProcessMonitorTests
     {
         // Arrange
         var mockProcess = Substitute.For<Process>();
-        _processManager.GetProcessesByName("WowClassic").Returns(new[] { mockProcess });
+        _processManager.GetProcessesByName("WowClassic").Returns([mockProcess]);
 
         // Act
         var result = _sut.IsWowRunning();
@@ -112,7 +112,7 @@ public class ProcessMonitorTests
     {
         // Arrange
         var cts = new CancellationTokenSource();
-        cts.Cancel();
+        await cts.CancelAsync();
 
         // Act & Assert — should not throw, just exit
         await _sut.WaitForExitAsync(cts.Token);

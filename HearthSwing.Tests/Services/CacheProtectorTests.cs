@@ -1,4 +1,3 @@
-using System.IO;
 using AutoFixture;
 using AutoFixture.AutoNSubstitute;
 using HearthSwing.Services;
@@ -24,7 +23,7 @@ public class CacheProtectorTests
         _fs.FileExists(Arg.Any<string>()).Returns(false);
         _fs.DirectoryExists(Arg.Any<string>()).Returns(false);
         _fs.GetFiles(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<SearchOption>())
-            .Returns(Array.Empty<string>());
+            .Returns([]);
 
         _sut = new CacheProtector(_fs);
     }
@@ -34,8 +33,6 @@ public class CacheProtectorTests
     {
         _sut.Dispose();
     }
-
-    #region CollectCacheFiles
 
     [Test]
     public void CollectCacheFiles_WhenWtfDoesNotExist_ReturnsEmptyList()
@@ -105,10 +102,6 @@ public class CacheProtectorTests
         result.Count.ShouldBe(1);
     }
 
-    #endregion
-
-    #region Lock
-
     [Test]
     public void Lock_WhenNotLocked_SetsIsLockedTrue()
     {
@@ -149,7 +142,7 @@ public class CacheProtectorTests
         _fs.DirectoryExists(wtfPath).Returns(true);
         _fs.GetFiles(wtfPath, "bindings-cache.wtf", SearchOption.AllDirectories)
             .Returns([cacheFile]);
-        _fs.ReadAllBytes(cacheFile).Returns(new byte[] { 1, 2, 3 });
+        _fs.ReadAllBytes(cacheFile).Returns([1, 2, 3]);
         _fs.FileExists(cacheFile).Returns(true);
         _fs.GetAttributes(cacheFile).Returns(FileAttributes.Normal);
 
@@ -178,7 +171,7 @@ public class CacheProtectorTests
         _fs.GetFiles(wtfPath, "bindings-cache.wtf", SearchOption.AllDirectories).Returns([badFile]);
         _fs.GetFiles(wtfPath, "config-cache.wtf", SearchOption.AllDirectories).Returns([goodFile]);
         _fs.ReadAllBytes(badFile).Throws(new IOException("locked"));
-        _fs.ReadAllBytes(goodFile).Returns(new byte[] { 4, 5 });
+        _fs.ReadAllBytes(goodFile).Returns([4, 5]);
         _fs.FileExists(goodFile).Returns(true);
         _fs.GetAttributes(goodFile).Returns(FileAttributes.Normal);
 
@@ -210,10 +203,6 @@ public class CacheProtectorTests
         logMessages.ShouldContain(m => m.Contains("Locked") && m.Contains("cache files"));
     }
 
-    #endregion
-
-    #region Unlock
-
     [Test]
     public void Unlock_WhenLocked_SetsIsLockedFalseAndClearsBackups()
     {
@@ -239,7 +228,7 @@ public class CacheProtectorTests
         _fs.DirectoryExists(wtfPath).Returns(true);
         _fs.GetFiles(wtfPath, "bindings-cache.wtf", SearchOption.AllDirectories)
             .Returns([cacheFile]);
-        _fs.ReadAllBytes(cacheFile).Returns(new byte[] { 1 });
+        _fs.ReadAllBytes(cacheFile).Returns([1]);
         _fs.FileExists(cacheFile).Returns(true);
         _fs.GetAttributes(cacheFile).Returns(FileAttributes.Normal);
         _sut.Lock(wtfPath);
@@ -287,10 +276,6 @@ public class CacheProtectorTests
         logMessages.ShouldContain(m => m.Contains("unlocked"));
     }
 
-    #endregion
-
-    #region ForceRestore
-
     [Test]
     public void ForceRestore_WhenNoBackups_SnapshotsCurrentState()
     {
@@ -299,7 +284,7 @@ public class CacheProtectorTests
         var cacheFile = @"C:\Game\WTF\Account\X\config-cache.wtf";
         _fs.DirectoryExists(wtfPath).Returns(true);
         _fs.GetFiles(wtfPath, "config-cache.wtf", SearchOption.AllDirectories).Returns([cacheFile]);
-        _fs.ReadAllBytes(cacheFile).Returns(new byte[] { 10, 20 });
+        _fs.ReadAllBytes(cacheFile).Returns([10, 20]);
 
         var logMessages = new List<string>();
         _sut.Log += msg => logMessages.Add(msg);
@@ -354,7 +339,7 @@ public class CacheProtectorTests
         _fs.DirectoryExists(wtfPath).Returns(true);
         _fs.GetFiles(wtfPath, "bindings-cache.wtf", SearchOption.AllDirectories)
             .Returns([cacheFile]);
-        _fs.ReadAllBytes(cacheFile).Returns(new byte[] { 1 });
+        _fs.ReadAllBytes(cacheFile).Returns([1]);
         _fs.FileExists(cacheFile).Returns(true);
         _fs.GetAttributes(cacheFile).Returns(FileAttributes.Normal);
         _sut.Lock(wtfPath);
@@ -381,10 +366,6 @@ public class CacheProtectorTests
         // Assert
         logMessages.ShouldContain(m => m.Contains("Warning") && m.Contains("could not restore"));
     }
-
-    #endregion
-
-    #region Dispose
 
     [Test]
     public void Dispose_WhenLocked_Unlocks()
@@ -415,6 +396,4 @@ public class CacheProtectorTests
         _sut.Dispose();
         Should.NotThrow(() => _sut.Dispose());
     }
-
-    #endregion
 }

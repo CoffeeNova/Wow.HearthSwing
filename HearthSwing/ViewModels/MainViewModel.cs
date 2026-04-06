@@ -1,9 +1,5 @@
-using System;
 using System.Collections.ObjectModel;
 using System.IO;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -79,8 +75,8 @@ public partial class MainViewModel : ObservableObject
         _fs = fileSystem;
         _showError = showError;
 
-        _cacheProtector.Log += msg => AppendLog(msg);
-        _processMonitor.Log += msg => AppendLog(msg);
+        _cacheProtector.Log += AppendLog;
+        _processMonitor.Log += AppendLog;
 
         GamePath = settingsService.Current.GamePath;
         ProfilesPath = settingsService.Current.ProfilesPath;
@@ -89,11 +85,12 @@ public partial class MainViewModel : ObservableObject
         RefreshState();
     }
 
-    public void RefreshState()
+    private void RefreshState()
     {
         var profile = _profileManager.DetectCurrentProfile();
         CurrentProfileName = profile?.DisplayName ?? "None";
         CurrentProfileId = profile?.Id ?? "";
+        NewProfileName = profile?.Id ?? "";
         IsWowRunning = _processMonitor.IsWowRunning();
         IsCacheLocked = _cacheProtector.IsLocked;
 
@@ -123,7 +120,7 @@ public partial class MainViewModel : ObservableObject
         try
         {
             UnlockCacheIfNeeded();
-            _profileManager.SwitchTo(target, msg => AppendLog(msg));
+            _profileManager.SwitchTo(target, AppendLog);
             RefreshState();
             StatusText = $"Active: {CurrentProfileName}";
         }
@@ -155,8 +152,7 @@ public partial class MainViewModel : ObservableObject
         IsBusy = true;
         try
         {
-            _profileManager.SaveCurrentAsProfile(name, msg => AppendLog(msg));
-            NewProfileName = "";
+            _profileManager.SaveCurrentAsProfile(name, AppendLog);
             RefreshState();
             StatusText = $"Profile '{name}' saved.";
         }
@@ -171,14 +167,14 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task LaunchWowAsync()
+    private Task LaunchWowAsync()
     {
         if (IsBusy)
-            return;
+            return Task.CompletedTask;
         if (string.IsNullOrWhiteSpace(GamePath))
         {
             AppendLog("ERROR: Game path is not set.");
-            return;
+            return Task.CompletedTask;
         }
 
         IsBusy = true;
@@ -201,6 +197,8 @@ public partial class MainViewModel : ObservableObject
         {
             IsBusy = false;
         }
+
+        return Task.CompletedTask;
     }
 
     [RelayCommand]

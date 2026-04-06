@@ -62,7 +62,12 @@ Protected file patterns: `bindings-cache.wtf`, `config-cache.wtf`, `macros-cache
 
 - File-scoped namespaces: `namespace X.Y;` (one-liner, no braces).
 - `ImplicitUsings` and `Nullable` are enabled globally. Do not add `using System;` or `using System.Collections.Generic;`.
-- Explicit `using` only for non-global namespaces (`System.IO`, `System.Linq`, `System.Diagnostics`, etc.).
+- Explicit `using` only for non-global namespaces (`System.IO`, `System.Linq`, `System.Diagnostics`, etc.). Remove unused `using` directives.
+- Never use `#region` / `#endregion`. Prefer well-named methods and small classes for organization.
+- Prefer collection expressions (`[]`) over `Array.Empty<T>()`, `new List<T>()`, etc.
+- Prefer method groups over lambda wrappers when the signatures match: `_cacheProtector.Log += AppendLog;` not `_cacheProtector.Log += msg => AppendLog(msg);`.
+- Do not use the `async` keyword on a method that never `await`s anything. Return `Task.CompletedTask` or the inner task directly.
+- Prefer async overloads of BCL/framework methods when available (e.g., `ReadAllTextAsync`, `WriteAllTextAsync`).
 
 ### Naming
 
@@ -75,7 +80,7 @@ Protected file patterns: `bindings-cache.wtf`, `config-cache.wtf`, `macros-cache
 ### Access Modifiers
 
 - Services: `public sealed class`.
-- Models: `public sealed class` with `required` keyword on mandatory properties (`required string Id { get; set; }`).
+- Models: `public sealed class` with `required` keyword on mandatory properties. Use `{ get; init; }` by default; use `{ get; set; }` only when the property must be mutated after construction (e.g., `AppSettings` properties bound to UI or deserialized with `System.Text.Json`).
 - ViewModel: `public partial class` (required for source generators).
 - View code-behind helpers: `private` or `private static`.
 
@@ -103,7 +108,7 @@ Protected file patterns: `bindings-cache.wtf`, `config-cache.wtf`, `macros-cache
 ### Logging
 
 - In-app log via `AppendLog()` in `MainViewModel`. Format: `[HH:mm:ss] message\n`.
-- Services use `event Action<string>? Log` — ViewModel subscribes in constructor: `_cacheProtector.Log += msg => AppendLog(msg);`.
+- Services use `event Action<string>? Log` — ViewModel subscribes in constructor via method group: `_cacheProtector.Log += AppendLog;`.
 - Use plain message strings (no structured logging). Prefix errors with `"ERROR: "`, warnings with `"Warning: "`.
 
 ### JSON Serialization

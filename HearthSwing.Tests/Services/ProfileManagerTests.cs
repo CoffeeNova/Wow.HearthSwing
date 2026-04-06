@@ -1,4 +1,3 @@
-using System.IO;
 using AutoFixture;
 using AutoFixture.AutoNSubstitute;
 using HearthSwing.Models;
@@ -27,8 +26,8 @@ public class ProfileManagerTests
         _fs.DirectoryExists(Arg.Any<string>()).Returns(false);
         _fs.ReadAllText(Arg.Any<string>()).Returns(string.Empty);
         _fs.GetFiles(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<SearchOption>())
-            .Returns(Array.Empty<string>());
-        _fs.GetDirectories(Arg.Any<string>()).Returns(Array.Empty<string>());
+            .Returns([]);
+        _fs.GetDirectories(Arg.Any<string>()).Returns([]);
 
         _settings = _fixture.Freeze<ISettingsService>();
         _settings.Current.Returns(
@@ -37,8 +36,6 @@ public class ProfileManagerTests
 
         _sut = new ProfileManager(_settings, _fs);
     }
-
-    #region DiscoverProfiles
 
     [Test]
     public void DiscoverProfiles_WhenProfilesPathDoesNotExist_ReturnsEmptyList()
@@ -124,10 +121,6 @@ public class ProfileManagerTests
         result.ShouldAllBe(p => !p.IsActive);
     }
 
-    #endregion
-
-    #region DetectCurrentProfile
-
     [Test]
     public void DetectCurrentProfile_WhenNoMarker_ReturnsNull()
     {
@@ -170,10 +163,6 @@ public class ProfileManagerTests
         // Assert
         result.ShouldBeNull();
     }
-
-    #endregion
-
-    #region SwitchTo
 
     [Test]
     public void SwitchTo_WhenTargetFolderNotFound_ThrowsInvalidOperationException()
@@ -308,7 +297,7 @@ public class ProfileManagerTests
         // First MoveDirectory (park) succeeds, second (activate) fails
         var callCount = 0;
         _fs.When(x => x.MoveDirectory(Arg.Any<string>(), Arg.Any<string>()))
-            .Do(ci =>
+            .Do(_ =>
             {
                 callCount++;
                 if (callCount == 2)
@@ -368,10 +357,6 @@ public class ProfileManagerTests
         ex.Message.ShouldContain("Failed to back up current WTF");
     }
 
-    #endregion
-
-    #region SaveCurrentAsProfile
-
     [Test]
     public void SaveCurrentAsProfile_WhenWtfNotFound_ThrowsInvalidOperationException()
     {
@@ -391,7 +376,7 @@ public class ProfileManagerTests
         _fs.DirectoryExists(@"C:\Game\Profiles\Test").Returns(false);
         _fs.GetFiles(@"C:\Game\WTF", "*", SearchOption.TopDirectoryOnly)
             .Returns([@"C:\Game\WTF\Config.wtf"]);
-        _fs.GetDirectories(@"C:\Game\WTF").Returns(Array.Empty<string>());
+        _fs.GetDirectories(@"C:\Game\WTF").Returns([]);
 
         // Act
         _sut.SaveCurrentAsProfile("Test", _ => { });
@@ -410,8 +395,8 @@ public class ProfileManagerTests
         _fs.DirectoryExists(@"C:\Game\Profiles").Returns(true);
         _fs.DirectoryExists(@"C:\Game\Profiles\Test").Returns(true);
         _fs.GetFiles(@"C:\Game\WTF", "*", SearchOption.TopDirectoryOnly)
-            .Returns(Array.Empty<string>());
-        _fs.GetDirectories(@"C:\Game\WTF").Returns(Array.Empty<string>());
+            .Returns([]);
+        _fs.GetDirectories(@"C:\Game\WTF").Returns([]);
 
         var logMessages = new List<string>();
 
@@ -430,8 +415,8 @@ public class ProfileManagerTests
         _fs.DirectoryExists(@"C:\Game\WTF").Returns(true);
         _fs.DirectoryExists(@"C:\Game\Profiles").Returns(false);
         _fs.GetFiles(@"C:\Game\WTF", "*", SearchOption.TopDirectoryOnly)
-            .Returns(Array.Empty<string>());
-        _fs.GetDirectories(@"C:\Game\WTF").Returns(Array.Empty<string>());
+            .Returns([]);
+        _fs.GetDirectories(@"C:\Game\WTF").Returns([]);
 
         // Act
         _sut.SaveCurrentAsProfile("Test", _ => { });
@@ -439,6 +424,4 @@ public class ProfileManagerTests
         // Assert
         _fs.Received().CreateDirectory(@"C:\Game\Profiles");
     }
-
-    #endregion
 }

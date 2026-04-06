@@ -5,7 +5,7 @@ public sealed class ProfileInfo
     /// <summary>
     /// Profile identifier — same as the subfolder name inside ProfilesPath.
     /// </summary>
-    public required string Id { get; set; }
+    public required string Id { get; init; }
 
     /// <summary>
     /// Display name shown in the UI (defaults to Id).
@@ -15,7 +15,7 @@ public sealed class ProfileInfo
     /// <summary>
     /// Full path to the profile folder inside ProfilesPath.
     /// </summary>
-    public required string FolderPath { get; set; }
+    public required string FolderPath { get; init; }
 
     /// <summary>
     /// True when this profile is currently active (its data is in the WTF folder).
