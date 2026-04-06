@@ -599,8 +599,7 @@
               TextWrapping="Wrap"
               LineHeight="20"
               xml:space="preserve"
-            >
-              <Run
+            ><Run
                 FontWeight="SemiBold"
                 Text="1. Setup"
               />
