@@ -204,7 +204,7 @@
     <!-- Title -->
     <TextBlock
       Grid.Row="0"
-      Text="WoW Profile Switcher"
+      Text="HearthSwing"
       FontSize="22"
       FontWeight="Bold"
       Foreground="{StaticResource TextPrimary}"

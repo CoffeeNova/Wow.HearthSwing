@@ -66,8 +66,21 @@ public partial class MainViewModel : ObservableObject
 
     public ObservableCollection<ProfileInfo> Profiles { get; } = [];
 
-    public string AppVersion { get; } =
-        Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
+    public string AppVersion { get; } = GetVersion();
+
+    private static string GetVersion()
+    {
+        var version =
+            Assembly
+                .GetExecutingAssembly()
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+                ?.InformationalVersion
+            ?? "0.0.0";
+
+        // MSBuild appends "+commitHash" to InformationalVersion
+        var plusIndex = version.IndexOf('+');
+        return plusIndex >= 0 ? version[..plusIndex] : version;
+    }
 
     public MainViewModel(
         ISettingsService settingsService,
