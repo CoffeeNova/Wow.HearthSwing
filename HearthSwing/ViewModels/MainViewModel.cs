@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Reflection;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -49,6 +50,12 @@ public partial class MainViewModel : ObservableObject
     private bool _isSettingsVisible;
 
     [ObservableProperty]
+    private bool _isAboutVisible;
+
+    [ObservableProperty]
+    private bool _isHowToUseVisible;
+
+    [ObservableProperty]
     private string _statusText = "Ready";
 
     [ObservableProperty]
@@ -58,6 +65,9 @@ public partial class MainViewModel : ObservableObject
     private string _newProfileName = string.Empty;
 
     public ObservableCollection<ProfileInfo> Profiles { get; } = [];
+
+    public string AppVersion { get; } =
+        Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
 
     public MainViewModel(
         ISettingsService settingsService,
@@ -231,6 +241,18 @@ public partial class MainViewModel : ObservableObject
     private void ToggleSettings()
     {
         IsSettingsVisible = !IsSettingsVisible;
+    }
+
+    [RelayCommand]
+    private void ToggleAbout()
+    {
+        IsAboutVisible = !IsAboutVisible;
+    }
+
+    [RelayCommand]
+    private void ToggleHowToUse()
+    {
+        IsHowToUseVisible = !IsHowToUseVisible;
     }
 
     [RelayCommand]

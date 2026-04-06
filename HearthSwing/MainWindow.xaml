@@ -7,9 +7,9 @@
   mc:Ignorable="d"
   Title="HearthSwing"
   Icon="pack://application:,,,/app.ico"
-  Height="560"
+  Height="640"
   Width="420"
-  MinHeight="500"
+  MinHeight="580"
   MinWidth="380"
   Background="#1a1a2e"
   ResizeMode="CanResizeWithGrip"
@@ -25,6 +25,54 @@
     <SolidColorBrush x:Key="TextSecondary" Color="#8899aa" />
     <SolidColorBrush x:Key="LaunchGreen" Color="#00b894" />
     <SolidColorBrush x:Key="WarningOrange" Color="#fdcb6e" />
+
+    <!-- Dark scrollbar thumb -->
+    <Style x:Key="DarkScrollThumb" TargetType="Thumb">
+      <Setter Property="OverridesDefaultStyle" Value="True" />
+      <Setter Property="IsTabStop" Value="False" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Thumb">
+            <Border x:Name="thumbBorder" Background="#44ffffff" CornerRadius="3" Margin="1" />
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="thumbBorder" Property="Background" Value="#66ffffff" />
+              </Trigger>
+              <Trigger Property="IsDragging" Value="True">
+                <Setter TargetName="thumbBorder" Property="Background" Value="#88ffffff" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Dark vertical scrollbar -->
+    <Style TargetType="ScrollBar">
+      <Setter Property="OverridesDefaultStyle" Value="True" />
+      <Setter Property="Width" Value="8" />
+      <Setter Property="MinWidth" Value="8" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ScrollBar">
+            <Grid Background="Transparent">
+              <Track x:Name="PART_Track" IsDirectionReversed="True">
+                <Track.Thumb>
+                  <Thumb Style="{StaticResource DarkScrollThumb}" />
+                </Track.Thumb>
+              </Track>
+            </Grid>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+      <Style.Triggers>
+        <Trigger Property="Orientation" Value="Horizontal">
+          <Setter Property="Width" Value="Auto" />
+          <Setter Property="Height" Value="8" />
+          <Setter Property="MinHeight" Value="8" />
+        </Trigger>
+      </Style.Triggers>
+    </Style>
 
     <!-- Profile button style -->
     <Style x:Key="ProfileBtn" TargetType="Button">
@@ -348,15 +396,26 @@
       </Grid>
     </Border>
 
-    <!-- Settings toggle -->
-    <Button
-      Grid.Row="7"
-      Content="Settings"
-      Style="{StaticResource LinkBtn}"
-      HorizontalAlignment="Right"
-      Margin="0,4,0,0"
-      Command="{Binding ToggleSettingsCommand}"
-    />
+    <!-- Footer links -->
+    <StackPanel Grid.Row="7" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,4,0,0">
+      <Button
+        Content="How to use"
+        Style="{StaticResource LinkBtn}"
+        Command="{Binding ToggleHowToUseCommand}"
+        Margin="0,0,8,0"
+      />
+      <Button
+        Content="About"
+        Style="{StaticResource LinkBtn}"
+        Command="{Binding ToggleAboutCommand}"
+        Margin="0,0,8,0"
+      />
+      <Button
+        Content="Settings"
+        Style="{StaticResource LinkBtn}"
+        Command="{Binding ToggleSettingsCommand}"
+      />
+    </StackPanel>
 
     <!-- Settings panel (overlay) -->
     <Border
@@ -438,6 +497,147 @@
             />
           </StackPanel>
         </StackPanel>
+      </Border>
+    </Border>
+    <!-- About overlay -->
+    <Border
+      Grid.Row="0"
+      Grid.RowSpan="8"
+      Background="#ee1a1a2e"
+      CornerRadius="8"
+      Visibility="{Binding IsAboutVisible, Converter={StaticResource BoolToVis}}"
+      Padding="20"
+      VerticalAlignment="Center"
+      HorizontalAlignment="Center"
+      MinWidth="300"
+    >
+      <Border Background="{StaticResource CardBg}" CornerRadius="8" Padding="16">
+        <StackPanel>
+          <TextBlock
+            Text="About HearthSwing"
+            FontSize="16"
+            FontWeight="Bold"
+            Foreground="{StaticResource TextPrimary}"
+            Margin="0,0,0,12"
+          />
+          <TextBlock
+            Foreground="{StaticResource TextSecondary}"
+            FontSize="12"
+            TextWrapping="Wrap"
+            Margin="0,0,0,4"
+          >
+            <Run Text="Version: " />
+            <Run Text="{Binding AppVersion, Mode=OneTime}" FontWeight="SemiBold" />
+          </TextBlock>
+          <TextBlock
+            Text="WoW Classic Anniversary profile switcher"
+            Foreground="{StaticResource TextSecondary}"
+            FontSize="12"
+            TextWrapping="Wrap"
+            Margin="0,0,0,4"
+          />
+          <TextBlock
+            Foreground="{StaticResource TextSecondary}"
+            FontSize="12"
+            TextWrapping="Wrap"
+            Margin="0,0,0,12"
+          >
+            <Run Text="Author: " />
+            <Run Text="CoffeeNova" FontWeight="SemiBold" />
+          </TextBlock>
+          <Button
+            Content="Close"
+            Style="{StaticResource ActionBtn}"
+            Background="{StaticResource TextSecondary}"
+            Command="{Binding ToggleAboutCommand}"
+            HorizontalAlignment="Right"
+            MinWidth="80"
+          />
+        </StackPanel>
+      </Border>
+    </Border>
+
+    <!-- How to use overlay -->
+    <Border
+      Grid.Row="0"
+      Grid.RowSpan="8"
+      Background="#ee1a1a2e"
+      CornerRadius="8"
+      Visibility="{Binding IsHowToUseVisible, Converter={StaticResource BoolToVis}}"
+      Padding="20"
+      VerticalAlignment="Stretch"
+      HorizontalAlignment="Stretch"
+    >
+      <Border Background="{StaticResource CardBg}" CornerRadius="8" Padding="16">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+          </Grid.RowDefinitions>
+          <TextBlock
+            Grid.Row="0"
+            Text="How to Use"
+            FontSize="16"
+            FontWeight="Bold"
+            Foreground="{StaticResource TextPrimary}"
+            Margin="0,0,0,12"
+          />
+          <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,0,12">
+            <TextBlock
+              Foreground="{StaticResource TextSecondary}"
+              FontSize="12"
+              TextWrapping="Wrap"
+              LineHeight="20"
+              xml:space="preserve"
+            >
+              <Run
+                FontWeight="SemiBold"
+                Text="1. Setup"
+              />
+Place HearthSwing.exe anywhere you like. Open Settings and set the Game Path (folder with WowClassic.exe) and Profiles Path (where profile snapshots are stored).
+
+<Run
+                FontWeight="SemiBold"
+                Text="2. Save a profile"
+              />
+Enter a name in the "Save WTF as" field and click Save. This copies your current WTF folder as a named profile snapshot.
+
+<Run
+                FontWeight="SemiBold"
+                Text="3. Switch profiles"
+              />
+Click a profile button to swap the active WTF folder. The previous profile is parked automatically. After switching, launch WoW and click Restore, then type /reload in the game to apply the restored cache files.
+
+<Run
+                FontWeight="SemiBold"
+                Text="4. Launch WoW"
+              />
+Click "Launch WoW" to start the game with cache protection enabled. Cache files are locked read-only and restored from backup to prevent server sync from overwriting your local settings.
+
+<Run
+                FontWeight="SemiBold"
+                Text="5. Cache protection"
+              />
+After launch, cache files stay locked for the configured delay (default 120s). Use "Unlock" to release early or "Restore" to force-restore from backup while WoW is running (type /reload after).
+
+<Run
+                FontWeight="SemiBold"
+                Text="Note:"
+              />
+HearthSwing transfers macros, keybindings, edit mode layout, and addon settings. Action bars are NOT transferred. Use the ActionBarSaver addon (for TBC Anniversary: ActionBarSaver Reloaded) to save/restore action bars separately.</TextBlock
+            >
+          </ScrollViewer>
+          <Button
+            Grid.Row="2"
+            Content="Close"
+            Style="{StaticResource ActionBtn}"
+            Background="{StaticResource TextSecondary}"
+            Command="{Binding ToggleHowToUseCommand}"
+            HorizontalAlignment="Right"
+            MinWidth="80"
+          />
+        </Grid>
       </Border>
     </Border>
   </Grid>
