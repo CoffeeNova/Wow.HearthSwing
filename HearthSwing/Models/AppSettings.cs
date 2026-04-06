@@ -11,5 +11,4 @@ public sealed class AppSettings
     public string ProfilesPath { get; set; } = string.Empty;
 
     public int UnlockDelaySeconds { get; set; } = 120;
-    public bool ClearCacheOnSwitch { get; set; } = false;
 }

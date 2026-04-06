@@ -1,11 +1,10 @@
-using System;
 using System.IO;
 using System.Text.Json;
 using HearthSwing.Models;
 
 namespace HearthSwing.Services;
 
-public sealed class SettingsService
+public sealed class SettingsService : ISettingsService
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -13,19 +12,20 @@ public sealed class SettingsService
         PropertyNameCaseInsensitive = true,
     };
 
+    private readonly IFileSystem _fs;
     private readonly string _settingsPath;
 
     public AppSettings Current { get; private set; } = new();
 
-    public SettingsService()
+    public SettingsService(IFileSystem fileSystem, string? settingsPath = null)
     {
-        var exeDir = AppContext.BaseDirectory;
-        _settingsPath = Path.Combine(exeDir, "AppSettings.json");
+        _fs = fileSystem;
+        _settingsPath = settingsPath ?? Path.Combine(AppContext.BaseDirectory, "AppSettings.json");
     }
 
     public void Load()
     {
-        if (!File.Exists(_settingsPath))
+        if (!_fs.FileExists(_settingsPath))
         {
             Current = CreateDefaults();
             Save();
@@ -34,7 +34,7 @@ public sealed class SettingsService
 
         try
         {
-            var json = File.ReadAllText(_settingsPath);
+            var json = _fs.ReadAllText(_settingsPath);
             Current =
                 JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? CreateDefaults();
         }
@@ -47,33 +47,36 @@ public sealed class SettingsService
     public void Save()
     {
         var json = JsonSerializer.Serialize(Current, JsonOptions);
-        File.WriteAllText(_settingsPath, json);
+        _fs.WriteAllText(_settingsPath, json);
     }
 
-    private static AppSettings CreateDefaults()
+    private AppSettings CreateDefaults()
     {
-        // Try to auto-detect the game path: look for WowClassic.exe near the exe
         var exeDir = AppContext.BaseDirectory;
-
-        // Walk up looking for WowClassic.exe (the app lives inside the game folder)
-        var dir = exeDir;
-        string gamePath = string.Empty;
-        for (var i = 0; i < 5; i++)
-        {
-            if (dir is null)
-                break;
-            if (File.Exists(Path.Combine(dir, "WowClassic.exe")))
-            {
-                gamePath = dir;
-                break;
-            }
-            dir = Path.GetDirectoryName(dir);
-        }
+        var gamePath = DetectGamePath(exeDir);
 
         return new AppSettings
         {
             GamePath = gamePath,
             ProfilesPath = Path.Combine(exeDir, "Profiles"),
         };
+    }
+
+    /// <summary>
+    /// Walk up from the exe directory looking for WowClassic.exe — the app typically
+    /// lives inside the game folder so the exe is a few levels below the game root.
+    /// </summary>
+    private string DetectGamePath(string startDir)
+    {
+        var dir = startDir;
+        for (var i = 0; i < 5; i++)
+        {
+            if (dir is null)
+                break;
+            if (_fs.FileExists(Path.Combine(dir, "WowClassic.exe")))
+                return dir;
+            dir = Path.GetDirectoryName(dir);
+        }
+        return string.Empty;
     }
 }

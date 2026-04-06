@@ -14,10 +14,12 @@ namespace HearthSwing.ViewModels;
 
 public partial class MainViewModel : ObservableObject
 {
-    private readonly SettingsService _settingsService;
-    private readonly ProfileManager _profileManager;
-    private readonly CacheProtector _cacheProtector;
-    private readonly ProcessMonitor _processMonitor;
+    private readonly ISettingsService _settingsService;
+    private readonly IProfileManager _profileManager;
+    private readonly ICacheProtector _cacheProtector;
+    private readonly IProcessMonitor _processMonitor;
+    private readonly IFileSystem _fs;
+    private readonly Action<string, string> _showError;
     private CancellationTokenSource? _unlockCts;
 
     [ObservableProperty]
@@ -61,12 +63,21 @@ public partial class MainViewModel : ObservableObject
 
     public ObservableCollection<ProfileInfo> Profiles { get; } = [];
 
-    public MainViewModel(SettingsService settingsService)
+    public MainViewModel(
+        ISettingsService settingsService,
+        IProfileManager profileManager,
+        ICacheProtector cacheProtector,
+        IProcessMonitor processMonitor,
+        IFileSystem fileSystem,
+        Action<string, string> showError
+    )
     {
         _settingsService = settingsService;
-        _profileManager = new ProfileManager(settingsService);
-        _cacheProtector = new CacheProtector();
-        _processMonitor = new ProcessMonitor();
+        _profileManager = profileManager;
+        _cacheProtector = cacheProtector;
+        _processMonitor = processMonitor;
+        _fs = fileSystem;
+        _showError = showError;
 
         _cacheProtector.Log += msg => AppendLog(msg);
         _processMonitor.Log += msg => AppendLog(msg);
@@ -86,7 +97,6 @@ public partial class MainViewModel : ObservableObject
         IsWowRunning = _processMonitor.IsWowRunning();
         IsCacheLocked = _cacheProtector.IsLocked;
 
-        // Refresh profiles list
         Profiles.Clear();
         foreach (var p in _profileManager.DiscoverProfiles())
             Profiles.Add(p);
@@ -98,43 +108,21 @@ public partial class MainViewModel : ObservableObject
         if (IsBusy)
             return;
 
-        var target = Profiles.FirstOrDefault(p =>
-            p.Id.Equals(profileId, StringComparison.OrdinalIgnoreCase)
-        );
+        var target = FindProfile(profileId);
         if (target is null)
-        {
-            AppendLog($"Profile '{profileId}' not found.");
             return;
-        }
 
-        if (target.Id.Equals(CurrentProfileId, StringComparison.OrdinalIgnoreCase))
-        {
-            AppendLog($"'{target.DisplayName}' is already active.");
+        if (IsAlreadyActive(target))
             return;
-        }
 
-        if (_processMonitor.IsWowRunning())
-        {
-            AppendLog("ERROR: WoW is running. Close the game before switching profiles.");
-            MessageBox.Show(
-                "WoW is currently running!\nClose the game before switching profiles.",
-                "WoW Profile Switcher",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning
-            );
+        if (GuardWowRunning("Close the game before switching profiles."))
             return;
-        }
 
         IsBusy = true;
         StatusText = "Switching...";
         try
         {
-            if (_cacheProtector.IsLocked)
-            {
-                _cacheProtector.Unlock();
-                IsCacheLocked = false;
-            }
-
+            UnlockCacheIfNeeded();
             _profileManager.SwitchTo(target, msg => AppendLog(msg));
             RefreshState();
             StatusText = $"Active: {CurrentProfileName}";
@@ -143,7 +131,7 @@ public partial class MainViewModel : ObservableObject
         {
             AppendLog($"ERROR: {ex.Message}");
             StatusText = "Switch failed!";
-            MessageBox.Show(ex.Message, "Switch Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            _showError(ex.Message, "Switch Error");
         }
         finally
         {
@@ -154,22 +142,15 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void SaveCurrentProfile()
     {
-        var name = NewProfileName?.Trim();
+        var name = SanitizeProfileName(NewProfileName);
         if (string.IsNullOrEmpty(name))
         {
             AppendLog("Enter a profile name first.");
             return;
         }
 
-        // Sanitize: only allow safe chars
-        foreach (var c in Path.GetInvalidFileNameChars())
-            name = name.Replace(c, '_');
-
-        if (_processMonitor.IsWowRunning())
-        {
-            AppendLog("ERROR: WoW is running. Close the game before saving a profile.");
+        if (GuardWowRunning("Close the game before saving a profile."))
             return;
-        }
 
         IsBusy = true;
         try
@@ -203,31 +184,13 @@ public partial class MainViewModel : ObservableObject
         IsBusy = true;
         try
         {
-            // Step 1: Lock cache files
-            var wtfPath = Path.Combine(GamePath, "WTF");
-            if (Directory.Exists(wtfPath))
-            {
-                _cacheProtector.Lock(wtfPath);
-                IsCacheLocked = true;
-                StatusText =
-                    $"Protected ({_cacheProtector.ProtectedFileCount} files) — Launching WoW...";
-            }
-
-            // Step 2: Launch WoW
+            LockCacheFiles();
             _processMonitor.LaunchWow(GamePath);
             IsWowRunning = true;
             AppendLog("WoW launched. Cache files are protected from server sync.");
 
-            // Step 3: Start unlock countdown
-            _unlockCts?.Cancel();
-            _unlockCts = new CancellationTokenSource();
-            var ct = _unlockCts.Token;
-            var delay = UnlockDelay;
-
-            _ = RunUnlockCountdownAsync(delay, ct);
-
-            // Step 4: Monitor WoW process in background
-            _ = MonitorWowAsync(ct);
+            StartUnlockCountdown();
+            StartProcessMonitor();
         }
         catch (Exception ex)
         {
@@ -238,6 +201,125 @@ public partial class MainViewModel : ObservableObject
         {
             IsBusy = false;
         }
+    }
+
+    [RelayCommand]
+    private void ForceUnlock()
+    {
+        _unlockCts?.Cancel();
+        _cacheProtector.Unlock();
+        IsCacheLocked = false;
+        UnlockCountdown = 0;
+        StatusText = IsWowRunning ? "WoW running (cache unlocked)" : "Ready";
+        AppendLog("Cache protection manually released.");
+    }
+
+    [RelayCommand]
+    private void ForceRestore()
+    {
+        var wtfPath = Path.Combine(GamePath, "WTF");
+        if (!_fs.DirectoryExists(wtfPath))
+        {
+            AppendLog("ERROR: WTF folder not found.");
+            return;
+        }
+
+        _cacheProtector.ForceRestore(wtfPath);
+        IsCacheLocked = _cacheProtector.IsLocked;
+        StatusText = "Files restored — type /reload in WoW!";
+    }
+
+    [RelayCommand]
+    private void ToggleSettings()
+    {
+        IsSettingsVisible = !IsSettingsVisible;
+    }
+
+    [RelayCommand]
+    private void SaveSettings()
+    {
+        _settingsService.Current.GamePath = GamePath;
+        _settingsService.Current.ProfilesPath = ProfilesPath;
+        _settingsService.Current.UnlockDelaySeconds = UnlockDelay;
+        _settingsService.Save();
+        IsSettingsVisible = false;
+        AppendLog("Settings saved.");
+        RefreshState();
+    }
+
+    private ProfileInfo? FindProfile(string profileId)
+    {
+        var target = Profiles.FirstOrDefault(p =>
+            p.Id.Equals(profileId, StringComparison.OrdinalIgnoreCase)
+        );
+        if (target is null)
+            AppendLog($"Profile '{profileId}' not found.");
+        return target;
+    }
+
+    private bool IsAlreadyActive(ProfileInfo target)
+    {
+        if (!target.Id.Equals(CurrentProfileId, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        AppendLog($"'{target.DisplayName}' is already active.");
+        return true;
+    }
+
+    /// <returns>True if WoW is running and the operation should be aborted.</returns>
+    private bool GuardWowRunning(string reason)
+    {
+        if (!_processMonitor.IsWowRunning())
+            return false;
+
+        AppendLog($"ERROR: WoW is running. {reason}");
+        _showError($"WoW is currently running!\n{reason}", "HearthSwing");
+        return true;
+    }
+
+    private void UnlockCacheIfNeeded()
+    {
+        if (!_cacheProtector.IsLocked)
+            return;
+
+        _cacheProtector.Unlock();
+        IsCacheLocked = false;
+    }
+
+    private static string? SanitizeProfileName(string? raw)
+    {
+        var name = raw?.Trim();
+        if (string.IsNullOrEmpty(name))
+            return null;
+
+        foreach (var c in Path.GetInvalidFileNameChars())
+            name = name.Replace(c, '_');
+
+        return name;
+    }
+
+    private void LockCacheFiles()
+    {
+        var wtfPath = Path.Combine(GamePath, "WTF");
+        if (!_fs.DirectoryExists(wtfPath))
+            return;
+
+        _cacheProtector.Lock(wtfPath);
+        IsCacheLocked = true;
+        StatusText = $"Protected ({_cacheProtector.ProtectedFileCount} files) — Launching WoW...";
+    }
+
+    private void StartUnlockCountdown()
+    {
+        _unlockCts?.Cancel();
+        _unlockCts = new CancellationTokenSource();
+        _ = RunUnlockCountdownAsync(UnlockDelay, _unlockCts.Token);
+    }
+
+    private void StartProcessMonitor()
+    {
+        var ct = _unlockCts?.Token ?? CancellationToken.None;
+        _ = MonitorWowAsync(ct);
     }
 
     private async Task RunUnlockCountdownAsync(int totalSeconds, CancellationToken ct)
@@ -276,61 +358,13 @@ public partial class MainViewModel : ObservableObject
             Application.Current?.Dispatcher.Invoke(() =>
             {
                 IsWowRunning = false;
-                if (_cacheProtector.IsLocked)
-                {
-                    _cacheProtector.Unlock();
-                    IsCacheLocked = false;
-                }
+                UnlockCacheIfNeeded();
                 UnlockCountdown = 0;
                 StatusText = "WoW closed. Ready.";
                 AppendLog("WoW process exited.");
             });
         }
         catch (OperationCanceledException) { }
-    }
-
-    [RelayCommand]
-    private void ForceUnlock()
-    {
-        _unlockCts?.Cancel();
-        _cacheProtector.Unlock();
-        IsCacheLocked = false;
-        UnlockCountdown = 0;
-        StatusText = IsWowRunning ? "WoW running (cache unlocked)" : "Ready";
-        AppendLog("Cache protection manually released.");
-    }
-
-    [RelayCommand]
-    private void ForceRestore()
-    {
-        var wtfPath = Path.Combine(GamePath, "WTF");
-        if (!Directory.Exists(wtfPath))
-        {
-            AppendLog("ERROR: WTF folder not found.");
-            return;
-        }
-
-        _cacheProtector.ForceRestore(wtfPath);
-        IsCacheLocked = _cacheProtector.IsLocked;
-        StatusText = "Files restored — type /reload in WoW!";
-    }
-
-    [RelayCommand]
-    private void ToggleSettings()
-    {
-        IsSettingsVisible = !IsSettingsVisible;
-    }
-
-    [RelayCommand]
-    private void SaveSettings()
-    {
-        _settingsService.Current.GamePath = GamePath;
-        _settingsService.Current.ProfilesPath = ProfilesPath;
-        _settingsService.Current.UnlockDelaySeconds = UnlockDelay;
-        _settingsService.Save();
-        IsSettingsVisible = false;
-        AppendLog("Settings saved.");
-        RefreshState();
     }
 
     private void AppendLog(string message)

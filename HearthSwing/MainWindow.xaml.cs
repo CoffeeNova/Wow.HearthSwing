@@ -5,6 +5,7 @@ using System.Windows.Media;
 using HearthSwing.Models;
 using HearthSwing.Services;
 using HearthSwing.ViewModels;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace HearthSwing;
 
@@ -26,16 +27,36 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
-        var settings = new SettingsService();
-        settings.Load();
+        var services = new ServiceCollection();
+        ConfigureServices(services);
+        var provider = services.BuildServiceProvider();
 
-        _vm = new MainViewModel(settings);
+        var settingsService = provider.GetRequiredService<ISettingsService>();
+        settingsService.Load();
+
+        _vm = provider.GetRequiredService<MainViewModel>();
         DataContext = _vm;
 
         _vm.PropertyChanged += OnViewModelPropertyChanged;
 
-        // Delay initial highlight until layout is done
         Loaded += (_, _) => UpdateProfileButtons();
+    }
+
+    private static void ConfigureServices(IServiceCollection services)
+    {
+        services.AddSingleton<IFileSystem, FileSystem>();
+        services.AddSingleton<IProcessManager, SystemProcessManager>();
+        services.AddSingleton<ISettingsService, SettingsService>();
+        services.AddSingleton<IProfileManager, ProfileManager>();
+        services.AddSingleton<ICacheProtector, CacheProtector>();
+        services.AddSingleton<IProcessMonitor, ProcessMonitor>();
+
+        services.AddSingleton<Action<string, string>>(_ =>
+            (message, title) =>
+                MessageBox.Show(message, title, MessageBoxButton.OK, MessageBoxImage.Warning)
+        );
+
+        services.AddSingleton<MainViewModel>();
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)

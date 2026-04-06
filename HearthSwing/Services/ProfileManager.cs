@@ -6,33 +6,31 @@ using HearthSwing.Models;
 
 namespace HearthSwing.Services;
 
-public sealed class ProfileManager
+public sealed class ProfileManager : IProfileManager
 {
     private const string WtfFolderName = "WTF";
     private const string ActiveMarker = ".active";
-    private readonly SettingsService _settings;
+    private readonly ISettingsService _settings;
+    private readonly IFileSystem _fs;
 
-    public ProfileManager(SettingsService settings)
+    public ProfileManager(ISettingsService settings, IFileSystem fileSystem)
     {
         _settings = settings;
+        _fs = fileSystem;
     }
 
     public string GamePath => _settings.Current.GamePath;
     public string ProfilesPath => _settings.Current.ProfilesPath;
 
-    /// <summary>
-    /// Scans the ProfilesPath directory for subfolders. Each subfolder is a profile.
-    /// The currently active profile is the one whose folder is absent (moved to WTF).
-    /// </summary>
     public List<ProfileInfo> DiscoverProfiles()
     {
         var profiles = new List<ProfileInfo>();
         var activeId = ReadActiveMarker();
 
-        if (!Directory.Exists(ProfilesPath))
+        if (!_fs.DirectoryExists(ProfilesPath))
             return profiles;
 
-        foreach (var dir in Directory.GetDirectories(ProfilesPath))
+        foreach (var dir in _fs.GetDirectories(ProfilesPath))
         {
             var name = Path.GetFileName(dir);
             profiles.Add(
@@ -45,36 +43,11 @@ public sealed class ProfileManager
             );
         }
 
-        // If we have an active marker and that profile folder is absent, add it
-        if (!string.IsNullOrEmpty(activeId))
-        {
-            var existing = profiles.FirstOrDefault(p =>
-                p.Id.Equals(activeId, StringComparison.OrdinalIgnoreCase)
-            );
-            if (existing is not null)
-            {
-                existing.IsActive = true;
-            }
-            else
-            {
-                // Folder is absent because it's currently the active WTF
-                profiles.Add(
-                    new ProfileInfo
-                    {
-                        Id = activeId,
-                        FolderPath = Path.Combine(ProfilesPath, activeId),
-                        IsActive = true,
-                    }
-                );
-            }
-        }
+        MarkOrAddActiveProfile(profiles, activeId);
 
         return profiles.OrderBy(p => p.Id, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    /// <summary>
-    /// Returns the currently active profile (the one whose data is in WTF right now).
-    /// </summary>
     public ProfileInfo? DetectCurrentProfile()
     {
         var activeId = ReadActiveMarker();
@@ -89,12 +62,6 @@ public sealed class ProfileManager
         };
     }
 
-    /// <summary>
-    /// Switches the active profile:
-    /// 1. Move WTF → ProfilesPath/{current}  (park the current profile)
-    /// 2. Move ProfilesPath/{target} → WTF   (activate the target)
-    /// 3. Update active marker
-    /// </summary>
     public void SwitchTo(ProfileInfo target, Action<string> log)
     {
         var currentProfile = DetectCurrentProfile();
@@ -110,105 +77,32 @@ public sealed class ProfileManager
         }
 
         var targetParked = target.FolderPath;
-        if (!Directory.Exists(targetParked))
+        if (!_fs.DirectoryExists(targetParked))
             throw new InvalidOperationException($"Target profile folder not found: {targetParked}");
 
-        // Park current WTF if it exists
-        if (Directory.Exists(wtfActive))
-        {
-            if (currentProfile is not null)
-            {
-                var currentParked = currentProfile.FolderPath;
+        if (_fs.DirectoryExists(wtfActive))
+            ParkOrBackupCurrentWtf(currentProfile, wtfActive, log);
 
-                if (Directory.Exists(currentParked))
-                    throw new InvalidOperationException(
-                        $"Cannot park current profile: folder already exists: {currentParked}. "
-                            + "This may indicate a broken state — check your profiles folder."
-                    );
-
-                log($"Parking '{currentProfile.DisplayName}': WTF → {currentProfile.Id}/");
-                try
-                {
-                    MoveDirectory(wtfActive, currentParked);
-                }
-                catch (Exception ex)
-                {
-                    throw new InvalidOperationException(
-                        $"Failed to park current profile: {ex.Message}. No changes were made.",
-                        ex
-                    );
-                }
-            }
-            else
-            {
-                // No active marker — WTF exists but we don't know whose it is.
-                // Auto-save it as a backup before overwriting.
-                var backupName = $"_backup_{DateTime.Now:yyyyMMdd_HHmmss}";
-                var backupPath = Path.Combine(ProfilesPath, backupName);
-                log($"No active profile known. Backing up current WTF → {backupName}/");
-                try
-                {
-                    if (!Directory.Exists(ProfilesPath))
-                        Directory.CreateDirectory(ProfilesPath);
-                    MoveDirectory(wtfActive, backupPath);
-                }
-                catch (Exception ex)
-                {
-                    throw new InvalidOperationException(
-                        $"Failed to back up current WTF: {ex.Message}. No changes were made.",
-                        ex
-                    );
-                }
-            }
-        }
-
-        // Activate target
-        log($"Activating '{target.DisplayName}': {target.Id}/ → WTF");
-        try
-        {
-            MoveDirectory(targetParked, wtfActive);
-        }
-        catch (Exception ex)
-        {
-            // Rollback: try to restore parked profile
-            if (currentProfile is not null)
-            {
-                log("ERROR: Rolling back...");
-                try
-                {
-                    MoveDirectory(currentProfile.FolderPath, wtfActive);
-                }
-                catch
-                { /* best effort */
-                }
-            }
-            throw new InvalidOperationException(
-                $"Failed to activate target profile: {ex.Message}. Attempted rollback.",
-                ex
-            );
-        }
+        ActivateProfile(target, targetParked, wtfActive, currentProfile, log);
 
         WriteActiveMarker(target.Id);
         log($"Profile switched to '{target.DisplayName}'.");
     }
 
-    /// <summary>
-    /// Saves the current WTF folder as a new profile (or overwrites an existing one).
-    /// </summary>
     public void SaveCurrentAsProfile(string profileId, Action<string> log)
     {
         var wtfActive = Path.Combine(GamePath, WtfFolderName);
-        if (!Directory.Exists(wtfActive))
+        if (!_fs.DirectoryExists(wtfActive))
             throw new InvalidOperationException("WTF folder not found.");
 
-        if (!Directory.Exists(ProfilesPath))
-            Directory.CreateDirectory(ProfilesPath);
+        if (!_fs.DirectoryExists(ProfilesPath))
+            _fs.CreateDirectory(ProfilesPath);
 
         var dest = Path.Combine(ProfilesPath, profileId);
-        if (Directory.Exists(dest))
+        if (_fs.DirectoryExists(dest))
         {
             log($"Overwriting existing profile '{profileId}'...");
-            Directory.Delete(dest, recursive: true);
+            _fs.DeleteDirectory(dest, recursive: true);
         }
 
         log($"Copying WTF → {profileId}/...");
@@ -217,14 +111,147 @@ public sealed class ProfileManager
         log($"Profile '{profileId}' saved.");
     }
 
+    private void MarkOrAddActiveProfile(List<ProfileInfo> profiles, string activeId)
+    {
+        if (string.IsNullOrEmpty(activeId))
+            return;
+
+        var existing = profiles.FirstOrDefault(p =>
+            p.Id.Equals(activeId, StringComparison.OrdinalIgnoreCase)
+        );
+
+        if (existing is not null)
+        {
+            existing.IsActive = true;
+        }
+        else
+        {
+            // Folder is absent because it's currently the active WTF
+            profiles.Add(
+                new ProfileInfo
+                {
+                    Id = activeId,
+                    FolderPath = Path.Combine(ProfilesPath, activeId),
+                    IsActive = true,
+                }
+            );
+        }
+    }
+
+    private void ParkOrBackupCurrentWtf(
+        ProfileInfo? currentProfile,
+        string wtfActive,
+        Action<string> log
+    )
+    {
+        if (currentProfile is not null)
+            ParkCurrentProfile(currentProfile, wtfActive, log);
+        else
+            BackupUnknownWtf(wtfActive, log);
+    }
+
+    private void ParkCurrentProfile(
+        ProfileInfo currentProfile,
+        string wtfActive,
+        Action<string> log
+    )
+    {
+        var currentParked = currentProfile.FolderPath;
+
+        if (_fs.DirectoryExists(currentParked))
+            throw new InvalidOperationException(
+                $"Cannot park current profile: folder already exists: {currentParked}. "
+                    + "This may indicate a broken state — check your profiles folder."
+            );
+
+        log($"Parking '{currentProfile.DisplayName}': WTF → {currentProfile.Id}/");
+        try
+        {
+            MoveDirectory(wtfActive, currentParked);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"Failed to park current profile: {ex.Message}. No changes were made.",
+                ex
+            );
+        }
+    }
+
+    /// <summary>
+    /// No active marker exists — WTF is present but we don't know which profile owns it.
+    /// Back it up with a timestamped name before overwriting.
+    /// </summary>
+    private void BackupUnknownWtf(string wtfActive, Action<string> log)
+    {
+        var backupName = $"_backup_{DateTime.Now:yyyyMMdd_HHmmss}";
+        var backupPath = Path.Combine(ProfilesPath, backupName);
+        log($"No active profile known. Backing up current WTF → {backupName}/");
+        try
+        {
+            if (!_fs.DirectoryExists(ProfilesPath))
+                _fs.CreateDirectory(ProfilesPath);
+            MoveDirectory(wtfActive, backupPath);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"Failed to back up current WTF: {ex.Message}. No changes were made.",
+                ex
+            );
+        }
+    }
+
+    private void ActivateProfile(
+        ProfileInfo target,
+        string targetParked,
+        string wtfActive,
+        ProfileInfo? currentProfile,
+        Action<string> log
+    )
+    {
+        log($"Activating '{target.DisplayName}': {target.Id}/ → WTF");
+        try
+        {
+            MoveDirectory(targetParked, wtfActive);
+        }
+        catch (Exception ex)
+        {
+            RollbackParkedProfile(currentProfile, wtfActive, log);
+            throw new InvalidOperationException(
+                $"Failed to activate target profile: {ex.Message}. Attempted rollback.",
+                ex
+            );
+        }
+    }
+
+    private void RollbackParkedProfile(
+        ProfileInfo? currentProfile,
+        string wtfActive,
+        Action<string> log
+    )
+    {
+        if (currentProfile is null)
+            return;
+
+        log("ERROR: Rolling back...");
+        try
+        {
+            MoveDirectory(currentProfile.FolderPath, wtfActive);
+        }
+        catch
+        { /* best effort */
+        }
+    }
+
     private string ReadActiveMarker()
     {
         var markerPath = Path.Combine(ProfilesPath, ActiveMarker);
-        if (!File.Exists(markerPath))
+        if (!_fs.FileExists(markerPath))
             return string.Empty;
         try
         {
-            return File.ReadAllText(markerPath).Trim();
+            return _fs.ReadAllText(markerPath).Trim();
         }
         catch
         {
@@ -234,56 +261,55 @@ public sealed class ProfileManager
 
     private void WriteActiveMarker(string profileId)
     {
-        if (!Directory.Exists(ProfilesPath))
-            Directory.CreateDirectory(ProfilesPath);
+        if (!_fs.DirectoryExists(ProfilesPath))
+            _fs.CreateDirectory(ProfilesPath);
 
         var markerPath = Path.Combine(ProfilesPath, ActiveMarker);
-        File.WriteAllText(markerPath, profileId);
+        _fs.WriteAllText(markerPath, profileId);
     }
 
     /// <summary>
-    /// Moves a directory. Clears read-only attributes first, then uses rename if same
-    /// volume, otherwise falls back to copy + delete.
+    /// Same-volume uses rename for speed; cross-volume falls back to copy + delete.
     /// </summary>
-    private static void MoveDirectory(string source, string dest)
+    private void MoveDirectory(string source, string dest)
     {
         ClearReadOnlyAttributes(source);
 
-        if (
-            Path.GetPathRoot(Path.GetFullPath(source))!
-                .Equals(
-                    Path.GetPathRoot(Path.GetFullPath(dest)),
-                    StringComparison.OrdinalIgnoreCase
-                )
-        )
+        if (IsSameVolume(source, dest))
         {
-            Directory.Move(source, dest);
+            _fs.MoveDirectory(source, dest);
         }
         else
         {
             CopyDirectory(source, dest);
-            Directory.Delete(source, recursive: true);
+            _fs.DeleteDirectory(source, recursive: true);
         }
     }
 
-    private static void ClearReadOnlyAttributes(string directory)
+    private static bool IsSameVolume(string path1, string path2)
     {
-        if (!Directory.Exists(directory))
+        return Path.GetPathRoot(Path.GetFullPath(path1))!
+            .Equals(Path.GetPathRoot(Path.GetFullPath(path2)), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void ClearReadOnlyAttributes(string directory)
+    {
+        if (!_fs.DirectoryExists(directory))
             return;
-        foreach (var file in Directory.GetFiles(directory, "*", SearchOption.AllDirectories))
+        foreach (var file in _fs.GetFiles(directory, "*", SearchOption.AllDirectories))
         {
-            var attrs = File.GetAttributes(file);
+            var attrs = _fs.GetAttributes(file);
             if ((attrs & FileAttributes.ReadOnly) != 0)
-                File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
+                _fs.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
         }
     }
 
-    private static void CopyDirectory(string source, string dest)
+    private void CopyDirectory(string source, string dest)
     {
-        Directory.CreateDirectory(dest);
-        foreach (var file in Directory.GetFiles(source))
-            File.Copy(file, Path.Combine(dest, Path.GetFileName(file)));
-        foreach (var dir in Directory.GetDirectories(source))
+        _fs.CreateDirectory(dest);
+        foreach (var file in _fs.GetFiles(source, "*", SearchOption.TopDirectoryOnly))
+            _fs.CopyFile(file, Path.Combine(dest, Path.GetFileName(file)));
+        foreach (var dir in _fs.GetDirectories(source))
             CopyDirectory(dir, Path.Combine(dest, Path.GetFileName(dir)));
     }
 }
