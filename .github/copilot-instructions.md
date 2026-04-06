@@ -68,6 +68,7 @@ Protected file patterns: `bindings-cache.wtf`, `config-cache.wtf`, `macros-cache
 - Prefer method groups over lambda wrappers when the signatures match: `_cacheProtector.Log += AppendLog;` not `_cacheProtector.Log += msg => AppendLog(msg);`.
 - Do not use the `async` keyword on a method that never `await`s anything. Return `Task.CompletedTask` or the inner task directly.
 - Prefer async overloads of BCL/framework methods when available (e.g., `ReadAllTextAsync`, `WriteAllTextAsync`).
+- Use `string.Empty` instead of `""` for empty string literals.
 
 ### Naming
 

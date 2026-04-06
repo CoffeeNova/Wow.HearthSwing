@@ -22,10 +22,10 @@ public partial class MainViewModel : ObservableObject
     private string _currentProfileName = "None";
 
     [ObservableProperty]
-    private string _currentProfileId = "";
+    private string _currentProfileId = string.Empty;
 
     [ObservableProperty]
-    private string _logText = "";
+    private string _logText = string.Empty;
 
     [ObservableProperty]
     private bool _isBusy;
@@ -37,10 +37,10 @@ public partial class MainViewModel : ObservableObject
     private bool _isCacheLocked;
 
     [ObservableProperty]
-    private string _gamePath = "";
+    private string _gamePath = string.Empty;
 
     [ObservableProperty]
-    private string _profilesPath = "";
+    private string _profilesPath = string.Empty;
 
     [ObservableProperty]
     private int _unlockDelay = 120;
@@ -55,7 +55,7 @@ public partial class MainViewModel : ObservableObject
     private int _unlockCountdown;
 
     [ObservableProperty]
-    private string _newProfileName = "";
+    private string _newProfileName = string.Empty;
 
     public ObservableCollection<ProfileInfo> Profiles { get; } = [];
 
@@ -89,8 +89,8 @@ public partial class MainViewModel : ObservableObject
     {
         var profile = _profileManager.DetectCurrentProfile();
         CurrentProfileName = profile?.DisplayName ?? "None";
-        CurrentProfileId = profile?.Id ?? "";
-        NewProfileName = profile?.Id ?? "";
+        CurrentProfileId = profile?.Id ?? string.Empty;
+        NewProfileName = profile?.Id ?? string.Empty;
         IsWowRunning = _processMonitor.IsWowRunning();
         IsCacheLocked = _cacheProtector.IsLocked;
 

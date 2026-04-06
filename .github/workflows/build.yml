@@ -1,0 +1,74 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  DOTNET_VERSION: "8.0.x"
+  PROJECT: HearthSwing/HearthSwing.csproj
+  SOLUTION: HearthSwing.slnx
+  PUBLISH_DIR: publish
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Determine version
+        id: version
+        shell: pwsh
+        run: |
+          [xml]$csproj = Get-Content ${{ env.PROJECT }}
+          $base = $csproj.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          $version = "$base.${{ github.run_number }}"
+          "VERSION=$version" >> $env:GITHUB_OUTPUT
+          "TAG=v$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Version: $version"
+
+      - name: Restore
+        run: dotnet restore ${{ env.SOLUTION }}
+
+      - name: Build
+        run: dotnet build ${{ env.SOLUTION }} -c Release --no-restore -p:Version=${{ steps.version.outputs.VERSION }}
+
+      - name: Test
+        run: dotnet test ${{ env.SOLUTION }} -c Release --no-build --logger "trx;LogFileName=results.trx"
+
+      - name: Publish
+        run: dotnet publish ${{ env.PROJECT }} -c Release --no-build -o ${{ env.PUBLISH_DIR }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HearthSwing-${{ steps.version.outputs.VERSION }}
+          path: ${{ env.PUBLISH_DIR }}
+
+      - name: Create GitHub Release
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.version.outputs.TAG }}"
+          $version = "${{ steps.version.outputs.VERSION }}"
+          $artifactDir = "${{ env.PUBLISH_DIR }}"
+          $zipName = "HearthSwing-$version.zip"
+
+          Compress-Archive -Path "$artifactDir\*" -DestinationPath $zipName
+
+          gh release create $tag $zipName `
+            --title "HearthSwing $version" `
+            --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
