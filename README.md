@@ -61,7 +61,7 @@ After launch, cache files stay locked for the configured delay (default 120 seco
 
 ### Prerequisites
 
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (Windows)
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) (Windows)
 - Visual Studio 2022+ or VS Code with C# Dev Kit
 
 ### Project structure
@@ -109,7 +109,7 @@ dotnet test HearthSwing.slnx -c Release
 dotnet publish HearthSwing/HearthSwing.csproj -c Release
 ```
 
-Produces a single-file self-contained executable (`~140 MB`) in `HearthSwing/bin/Release/net8.0-windows/win-x64/publish/`.
+Produces a single-file self-contained executable (`~140 MB`) in `HearthSwing/bin/Release/net10.0-windows/win-x64/publish/`.
 
 ### CI/CD
 

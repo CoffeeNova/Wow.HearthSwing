@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-WPF desktop application (.NET 8, `win-x64`) for switching World of Warcraft (Classic Anniversary) settings profiles between multiple users on the same PC.
+WPF desktop application (.NET 10, `win-x64`) for switching World of Warcraft (Classic Anniversary) settings profiles between multiple users on the same PC.
 Single-project solution with MVVM architecture: **Models → Services → ViewModels → Views**.
 
 | Folder | Namespace | Role |
@@ -149,7 +149,7 @@ Protected file patterns: `bindings-cache.wtf`, `config-cache.wtf`, `macros-cache
 - Build: `dotnet build HearthSwing.slnx -c Release`
 - Test: `dotnet test HearthSwing.slnx -c Release`
 - Publish: `dotnet publish HearthSwing/HearthSwing.csproj -c Release` (produces single-file self-contained exe, ~140 MB).
-- Target: `net8.0-windows`, `win-x64`, `PublishSingleFile=true`, `SelfContained=true`, `IncludeNativeLibrariesForSelfExtract=true`.
+- Target: `net10.0-windows`, `win-x64`, `PublishSingleFile=true`, `SelfContained=true`, `IncludeNativeLibrariesForSelfExtract=true`.
 
 ## Adding New Functionality
 
