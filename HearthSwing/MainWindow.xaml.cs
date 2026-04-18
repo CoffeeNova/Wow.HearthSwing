@@ -22,6 +22,7 @@ public partial class MainWindow : Window
     ];
 
     private readonly MainViewModel _vm;
+    private bool _closePending;
 
     public MainWindow()
     {
@@ -40,10 +41,30 @@ public partial class MainWindow : Window
         _vm.PropertyChanged += OnViewModelPropertyChanged;
 
         Loaded += (_, _) => UpdateProfileButtons();
+        Closing += OnWindowClosing;
+    }
+
+    private async void OnWindowClosing(object? sender, CancelEventArgs e)
+    {
+        if (_closePending)
+            return;
+
+        if (!_vm.IsArchiving)
+            return;
+
+        e.Cancel = true;
+        _closePending = true;
+        _vm.IsCloseBlockedByArchiving = true;
+
+        await _vm.WaitForArchivingAsync();
+
+        Close();
     }
 
     private static void ConfigureServices(IServiceCollection services)
     {
+        services.AddSingleton<AppLogger>();
+        services.AddSingleton<IAppLogger>(sp => sp.GetRequiredService<AppLogger>());
         services.AddSingleton<IFileSystem, FileSystem>();
         services.AddSingleton<IProcessManager, SystemProcessManager>();
         services.AddSingleton<ISettingsService, SettingsService>();
@@ -51,6 +72,8 @@ public partial class MainWindow : Window
         services.AddSingleton<ICacheProtector, CacheProtector>();
         services.AddSingleton<IProcessMonitor, ProcessMonitor>();
         services.AddSingleton<IUpdateService, UpdateService>();
+        services.AddSingleton<IArchiveService, TarGzArchiveService>();
+        services.AddSingleton<IProfileVersionService, ProfileVersionService>();
 
         services.AddSingleton<Action<string, string>>(_ =>
             (message, title) =>

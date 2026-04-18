@@ -12,6 +12,7 @@ public class CacheProtectorTests
 {
     private IFixture _fixture = null!;
     private IFileSystem _fs = null!;
+    private IAppLogger _logger = null!;
     private CacheProtector _sut = null!;
 
     [SetUp]
@@ -19,13 +20,13 @@ public class CacheProtectorTests
     {
         _fixture = new Fixture().Customize(new AutoNSubstituteCustomization());
         _fs = _fixture.Freeze<IFileSystem>();
+        _logger = _fixture.Freeze<IAppLogger>();
 
         _fs.FileExists(Arg.Any<string>()).Returns(false);
         _fs.DirectoryExists(Arg.Any<string>()).Returns(false);
-        _fs.GetFiles(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<SearchOption>())
-            .Returns([]);
+        _fs.GetFiles(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<SearchOption>()).Returns([]);
 
-        _sut = new CacheProtector(_fs);
+        _sut = new CacheProtector(_fs, _logger);
     }
 
     [TearDown]
@@ -175,32 +176,28 @@ public class CacheProtectorTests
         _fs.FileExists(goodFile).Returns(true);
         _fs.GetAttributes(goodFile).Returns(FileAttributes.Normal);
 
-        var logMessages = new List<string>();
-        _sut.Log += msg => logMessages.Add(msg);
-
         // Act
         _sut.Lock(wtfPath);
 
         // Assert
-        logMessages.ShouldContain(m => m.Contains("Warning") && m.Contains("locked"));
+        _logger.Received().Log(Arg.Is<string>(m => m.Contains("Warning") && m.Contains("locked")));
         _sut.ProtectedFileCount.ShouldBe(1);
     }
 
     [Test]
-    public void Lock_FiresLogEvent()
+    public void Lock_LogsProtectedFileCount()
     {
         // Arrange
         var wtfPath = @"C:\Game\WTF";
         _fs.DirectoryExists(wtfPath).Returns(true);
 
-        var logMessages = new List<string>();
-        _sut.Log += msg => logMessages.Add(msg);
-
         // Act
         _sut.Lock(wtfPath);
 
         // Assert
-        logMessages.ShouldContain(m => m.Contains("Locked") && m.Contains("cache files"));
+        _logger
+            .Received()
+            .Log(Arg.Is<string>(m => m.Contains("Locked") && m.Contains("cache files")));
     }
 
     [Test]
@@ -259,21 +256,19 @@ public class CacheProtectorTests
     }
 
     [Test]
-    public void Unlock_FiresLogEvent()
+    public void Unlock_LogsUnlocked()
     {
         // Arrange
         var wtfPath = @"C:\Game\WTF";
         _fs.DirectoryExists(wtfPath).Returns(true);
         _sut.Lock(wtfPath);
-
-        var logMessages = new List<string>();
-        _sut.Log += msg => logMessages.Add(msg);
+        _logger.ClearReceivedCalls();
 
         // Act
         _sut.Unlock();
 
         // Assert
-        logMessages.ShouldContain(m => m.Contains("unlocked"));
+        _logger.Received().Log(Arg.Is<string>(m => m.Contains("unlocked")));
     }
 
     [Test]
@@ -286,14 +281,13 @@ public class CacheProtectorTests
         _fs.GetFiles(wtfPath, "config-cache.wtf", SearchOption.AllDirectories).Returns([cacheFile]);
         _fs.ReadAllBytes(cacheFile).Returns([10, 20]);
 
-        var logMessages = new List<string>();
-        _sut.Log += msg => logMessages.Add(msg);
-
         // Act
         _sut.ForceRestore(wtfPath);
 
         // Assert
-        logMessages.ShouldContain(m => m.Contains("Snapshot") && m.Contains("1 files"));
+        _logger
+            .Received()
+            .Log(Arg.Is<string>(m => m.Contains("Snapshot") && m.Contains("1 files")));
         _sut.ProtectedFileCount.ShouldBe(1);
     }
 
@@ -317,8 +311,7 @@ public class CacheProtectorTests
         _fs.GetAttributes(cacheFile).Returns(FileAttributes.ReadOnly);
         _fs.DirectoryExists(wtfPath).Returns(true);
 
-        var logMessages = new List<string>();
-        _sut.Log += msg => logMessages.Add(msg);
+        _logger.ClearReceivedCalls();
 
         // Act
         _sut.ForceRestore(wtfPath);
@@ -327,7 +320,9 @@ public class CacheProtectorTests
         _fs.Received().WriteAllBytes(cacheFile, backupData);
         _fs.Received().SetLastWriteTime(cacheFile, Arg.Any<DateTime>());
         _sut.IsLocked.ShouldBeTrue();
-        logMessages.ShouldContain(m => m.Contains("Force-restored") && m.Contains("/reload"));
+        _logger
+            .Received()
+            .Log(Arg.Is<string>(m => m.Contains("Force-restored") && m.Contains("/reload")));
     }
 
     [Test]
@@ -357,14 +352,15 @@ public class CacheProtectorTests
             )
             .Do(_ => throw new IOException("locked by process"));
 
-        var logMessages = new List<string>();
-        _sut.Log += msg => logMessages.Add(msg);
+        _logger.ClearReceivedCalls();
 
         // Act
         _sut.ForceRestore(wtfPath);
 
         // Assert
-        logMessages.ShouldContain(m => m.Contains("Warning") && m.Contains("could not restore"));
+        _logger
+            .Received()
+            .Log(Arg.Is<string>(m => m.Contains("Warning") && m.Contains("could not restore")));
     }
 
     [Test]

@@ -15,7 +15,12 @@ public sealed class UpdateService : IUpdateService
 
     private static readonly HttpClient Http = CreateHttpClient();
 
-    public event Action<string>? Log;
+    private readonly IAppLogger _logger;
+
+    public UpdateService(IAppLogger logger)
+    {
+        _logger = logger;
+    }
 
     public async Task<UpdateCheckResult?> CheckForUpdateAsync(
         string currentVersion,
@@ -51,11 +56,7 @@ public sealed class UpdateService : IUpdateService
             ? body.GetString() ?? string.Empty
             : string.Empty;
 
-        return new UpdateCheckResult
-        {
-            Version = remoteVersion,
-            DownloadUrl = downloadUrl,
-        };
+        return new UpdateCheckResult { Version = remoteVersion, DownloadUrl = downloadUrl };
     }
 
     public async Task ApplyUpdateAsync(UpdateCheckResult update, CancellationToken ct)
@@ -66,9 +67,9 @@ public sealed class UpdateService : IUpdateService
 
         try
         {
-            Log?.Invoke($"Downloading HearthSwing {update.Version}...");
+            _logger.Log($"Downloading HearthSwing {update.Version}...");
             await DownloadFileAsync(update.DownloadUrl, tempZip, ct);
-            Log?.Invoke("Download complete. Extracting...");
+            _logger.Log("Download complete. Extracting...");
 
             if (Directory.Exists(tempExtract))
                 Directory.Delete(tempExtract, recursive: true);
@@ -78,7 +79,7 @@ public sealed class UpdateService : IUpdateService
             RenameCurrentFiles(appDir);
             CopyNewFiles(tempExtract, appDir);
 
-            Log?.Invoke("Update applied. Restarting...");
+            _logger.Log("Update applied. Restarting...");
 
             var exePath = Path.Combine(appDir, "HearthSwing.exe");
             Process.Start(new ProcessStartInfo { FileName = exePath, UseShellExecute = true });
@@ -143,7 +144,7 @@ public sealed class UpdateService : IUpdateService
             if (File.Exists(oldPath))
                 File.Delete(oldPath);
             File.Move(exePath, oldPath);
-            Log?.Invoke("Renamed current exe to HearthSwing.exe.old");
+            _logger.Log("Renamed current exe to HearthSwing.exe.old");
         }
     }
 

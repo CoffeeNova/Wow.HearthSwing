@@ -399,4 +399,107 @@ public class ProfileManagerTests
         // Assert
         _fs.Received().CreateDirectory(@"C:\Game\Profiles");
     }
+
+    [Test]
+    public void RestoreActiveProfile_WhenNoActiveMarker_ThrowsInvalidOperationException()
+    {
+        // Arrange — no .active marker file
+
+        // Act & Assert
+        Should.Throw<InvalidOperationException>(() => _sut.RestoreActiveProfile(_ => { }));
+    }
+
+    [Test]
+    public void RestoreActiveProfile_WhenSavedProfileNotFound_ThrowsInvalidOperationException()
+    {
+        // Arrange
+        var markerPath = @"C:\Game\Profiles\.active";
+        _fs.FileExists(markerPath).Returns(true);
+        _fs.ReadAllText(markerPath).Returns("Alice");
+        _fs.DirectoryExists(@"C:\Game\Profiles\Alice").Returns(false);
+
+        // Act & Assert
+        var ex = Should.Throw<InvalidOperationException>(() => _sut.RestoreActiveProfile(_ => { }));
+        ex.Message.ShouldContain("Alice");
+    }
+
+    [Test]
+    public void RestoreActiveProfile_WhenSavedProfileExists_DeletesWtfAndCopiesProfile()
+    {
+        // Arrange
+        var markerPath = @"C:\Game\Profiles\.active";
+        _fs.FileExists(markerPath).Returns(true);
+        _fs.ReadAllText(markerPath).Returns("Alice");
+        _fs.DirectoryExists(@"C:\Game\Profiles\Alice").Returns(true);
+        _fs.DirectoryExists(@"C:\Game\WTF").Returns(true);
+        _fs.GetFiles(@"C:\Game\Profiles\Alice", "*", SearchOption.TopDirectoryOnly)
+            .Returns([@"C:\Game\Profiles\Alice\Config.wtf"]);
+        _fs.GetDirectories(@"C:\Game\Profiles\Alice").Returns([]);
+
+        var logMessages = new List<string>();
+
+        // Act
+        _sut.RestoreActiveProfile(msg => logMessages.Add(msg));
+
+        // Assert
+        Received.InOrder(() =>
+        {
+            _fs.DeleteDirectory(@"C:\Game\WTF", true);
+            _fs.CreateDirectory(@"C:\Game\WTF");
+            _fs.CopyFile(@"C:\Game\Profiles\Alice\Config.wtf", @"C:\Game\WTF\Config.wtf");
+        });
+        logMessages.ShouldContain(m => m.Contains("restored"));
+    }
+
+    [Test]
+    public void RestoreActiveProfile_WhenWtfDoesNotExist_CopiesProfileWithoutDeletion()
+    {
+        // Arrange
+        var markerPath = @"C:\Game\Profiles\.active";
+        _fs.FileExists(markerPath).Returns(true);
+        _fs.ReadAllText(markerPath).Returns("Alice");
+        _fs.DirectoryExists(@"C:\Game\Profiles\Alice").Returns(true);
+        _fs.DirectoryExists(@"C:\Game\WTF").Returns(false);
+        _fs.GetFiles(@"C:\Game\Profiles\Alice", "*", SearchOption.TopDirectoryOnly)
+            .Returns([@"C:\Game\Profiles\Alice\Config.wtf"]);
+        _fs.GetDirectories(@"C:\Game\Profiles\Alice").Returns([]);
+
+        // Act
+        _sut.RestoreActiveProfile(_ => { });
+
+        // Assert
+        _fs.DidNotReceive().DeleteDirectory(@"C:\Game\WTF", Arg.Any<bool>());
+        _fs.Received().CreateDirectory(@"C:\Game\WTF");
+        _fs.Received().CopyFile(@"C:\Game\Profiles\Alice\Config.wtf", @"C:\Game\WTF\Config.wtf");
+    }
+
+    [Test]
+    public void RestoreActiveProfile_WhenWtfHasReadOnlyFiles_ClearsAttributesBeforeDelete()
+    {
+        // Arrange
+        var readOnlyFile = @"C:\Game\WTF\Account\bindings-cache.wtf";
+        var markerPath = @"C:\Game\Profiles\.active";
+        _fs.FileExists(markerPath).Returns(true);
+        _fs.ReadAllText(markerPath).Returns("Alice");
+        _fs.DirectoryExists(@"C:\Game\Profiles\Alice").Returns(true);
+        _fs.DirectoryExists(@"C:\Game\WTF").Returns(true);
+        _fs.GetFiles(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<SearchOption>())
+            .Returns(info =>
+            {
+                var dir = info.ArgAt<string>(0);
+                var opt = info.ArgAt<SearchOption>(2);
+                if (dir == @"C:\Game\WTF" && opt == SearchOption.AllDirectories)
+                    return new[] { readOnlyFile };
+                return Array.Empty<string>();
+            });
+        _fs.GetAttributes(readOnlyFile).Returns(FileAttributes.ReadOnly);
+        _fs.GetDirectories(@"C:\Game\Profiles\Alice").Returns([]);
+
+        // Act
+        _sut.RestoreActiveProfile(_ => { });
+
+        // Assert
+        _fs.Received().SetAttributes(readOnlyFile, FileAttributes.None);
+        _fs.Received().DeleteDirectory(@"C:\Game\WTF", true);
+    }
 }

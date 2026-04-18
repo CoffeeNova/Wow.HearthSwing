@@ -11,4 +11,12 @@ public sealed class AppSettings
     public string ProfilesPath { get; set; } = string.Empty;
 
     public int UnlockDelaySeconds { get; set; } = 120;
+
+    public bool VersioningEnabled { get; set; } = true;
+
+    public int MaxVersionsPerProfile { get; set; } = 5;
+
+    public bool SaveOnExitEnabled { get; set; } = true;
+
+    public bool AutoSaveOnExit { get; set; }
 }

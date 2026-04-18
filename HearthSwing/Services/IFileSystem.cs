@@ -22,4 +22,5 @@ public interface IFileSystem
     DateTime GetLastWriteTime(string path);
     void SetLastWriteTime(string path, DateTime lastWriteTime);
     void SetLastWriteTimeUtc(string path, DateTime lastWriteTimeUtc);
+    long GetFileLength(string path);
 }

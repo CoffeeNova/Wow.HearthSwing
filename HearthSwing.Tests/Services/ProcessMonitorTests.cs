@@ -13,6 +13,7 @@ public class ProcessMonitorTests
     private IFixture _fixture = null!;
     private IProcessManager _processManager = null!;
     private IFileSystem _fs = null!;
+    private IAppLogger _logger = null!;
     private ProcessMonitor _sut = null!;
 
     [SetUp]
@@ -21,10 +22,11 @@ public class ProcessMonitorTests
         _fixture = new Fixture().Customize(new AutoNSubstituteCustomization());
         _processManager = _fixture.Freeze<IProcessManager>();
         _fs = _fixture.Freeze<IFileSystem>();
+        _logger = _fixture.Freeze<IAppLogger>();
 
         _processManager.GetProcessesByName(Arg.Any<string>()).Returns([]);
 
-        _sut = new ProcessMonitor(_processManager, _fs);
+        _sut = new ProcessMonitor(_processManager, _fs, _logger);
     }
 
     [Test]
@@ -83,18 +85,16 @@ public class ProcessMonitorTests
     }
 
     [Test]
-    public void LaunchWow_WhenExeExists_FiresLogEvent()
+    public void LaunchWow_WhenExeExists_LogsLaunchMessage()
     {
         // Arrange
         _fs.FileExists(@"C:\Game\WowClassic.exe").Returns(true);
-        var logMessages = new List<string>();
-        _sut.Log += msg => logMessages.Add(msg);
 
         // Act
         _sut.LaunchWow(@"C:\Game");
 
         // Assert
-        logMessages.ShouldContain(m => m.Contains("Launching"));
+        _logger.Received().Log(Arg.Is<string>(m => m.Contains("Launching")));
     }
 
     [Test]

@@ -43,4 +43,6 @@ public sealed class FileSystem : IFileSystem
 
     public void SetLastWriteTimeUtc(string path, DateTime lastWriteTimeUtc) =>
         File.SetLastWriteTimeUtc(path, lastWriteTimeUtc);
+
+    public long GetFileLength(string path) => new FileInfo(path).Length;
 }

@@ -30,6 +30,10 @@ public sealed class ProfileManager : IProfileManager
         foreach (var dir in _fs.GetDirectories(ProfilesPath))
         {
             var name = Path.GetFileName(dir);
+            // Skip hidden/internal folders like .versions
+            if (name.StartsWith('.'))
+                continue;
+
             profiles.Add(
                 new ProfileInfo
                 {
@@ -112,6 +116,31 @@ public sealed class ProfileManager : IProfileManager
         CopyDirectory(wtfActive, dest);
         WriteActiveMarker(profileId);
         log($"Profile '{profileId}' saved.");
+    }
+
+    public void RestoreActiveProfile(Action<string> log)
+    {
+        var activeId = ReadActiveMarker();
+        if (string.IsNullOrEmpty(activeId))
+            throw new InvalidOperationException("No active profile to restore.");
+
+        var profilePath = Path.Combine(ProfilesPath, activeId);
+        if (!_fs.DirectoryExists(profilePath))
+            throw new InvalidOperationException(
+                $"Saved profile '{activeId}' not found. Save the profile first."
+            );
+
+        var wtfPath = Path.Combine(GamePath, WtfFolderName);
+
+        log($"Restoring profile '{activeId}' from saved snapshot...");
+        if (_fs.DirectoryExists(wtfPath))
+        {
+            ClearReadOnlyAttributes(wtfPath);
+            _fs.DeleteDirectory(wtfPath, recursive: true);
+        }
+
+        CopyDirectory(profilePath, wtfPath);
+        log($"Profile '{activeId}' restored from saved snapshot.");
     }
 
     private void MarkActiveProfile(List<ProfileInfo> profiles, string activeId)

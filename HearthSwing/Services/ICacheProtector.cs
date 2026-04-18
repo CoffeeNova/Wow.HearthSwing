@@ -7,7 +7,6 @@ public interface ICacheProtector : IDisposable
 {
     bool IsLocked { get; }
     int ProtectedFileCount { get; }
-    event Action<string>? Log;
     List<string> CollectCacheFiles(string wtfPath);
     void Lock(string wtfPath);
     void Unlock();

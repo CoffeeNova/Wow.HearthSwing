@@ -17,9 +17,15 @@ public partial class MainViewModel : ObservableObject
     private readonly IProcessMonitor _processMonitor;
     private readonly IFileSystem _fs;
     private readonly IUpdateService _updateService;
+    private readonly IProfileVersionService _versionService;
     private readonly Action<string, string> _showError;
     private readonly Func<string, string, bool> _showConfirm;
     private CancellationTokenSource? _unlockCts;
+    private CancellationTokenSource? _monitorCts;
+    private TaskCompletionSource<bool>? _savePromptTcs;
+    private readonly object _archiveLock = new();
+    private int _activeArchiveCount;
+    private TaskCompletionSource? _archiveDoneTcs;
 
     [ObservableProperty]
     private string _currentProfileName = "None";
@@ -69,7 +75,36 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _isCheckingForUpdate;
 
+    [ObservableProperty]
+    private bool _versioningEnabled = true;
+
+    [ObservableProperty]
+    private int _maxVersionsPerProfile = 5;
+
+    [ObservableProperty]
+    private bool _saveOnExitEnabled = true;
+
+    [ObservableProperty]
+    private bool _autoSaveOnExit;
+
+    [ObservableProperty]
+    private bool _isSavePromptVisible;
+
+    [ObservableProperty]
+    private string _savePromptProfileName = string.Empty;
+
+    [ObservableProperty]
+    private bool _isVersionHistoryVisible;
+
+    [ObservableProperty]
+    private bool _isArchiving;
+
+    [ObservableProperty]
+    private bool _isCloseBlockedByArchiving;
+
     public ObservableCollection<ProfileInfo> Profiles { get; } = [];
+
+    public ObservableCollection<ProfileVersion> Versions { get; } = [];
 
     public string AppVersion { get; } = GetVersion();
 
@@ -94,6 +129,8 @@ public partial class MainViewModel : ObservableObject
         IProcessMonitor processMonitor,
         IFileSystem fileSystem,
         IUpdateService updateService,
+        IProfileVersionService versionService,
+        AppLogger logger,
         Action<string, string> showError,
         Func<string, string, bool> showConfirm
     )
@@ -104,16 +141,19 @@ public partial class MainViewModel : ObservableObject
         _processMonitor = processMonitor;
         _fs = fileSystem;
         _updateService = updateService;
+        _versionService = versionService;
         _showError = showError;
         _showConfirm = showConfirm;
 
-        _cacheProtector.Log += AppendLog;
-        _processMonitor.Log += AppendLog;
-        _updateService.Log += AppendLog;
+        logger.SetSink(AppendLog);
 
         GamePath = settingsService.Current.GamePath;
         ProfilesPath = settingsService.Current.ProfilesPath;
         UnlockDelay = settingsService.Current.UnlockDelaySeconds;
+        VersioningEnabled = settingsService.Current.VersioningEnabled;
+        MaxVersionsPerProfile = settingsService.Current.MaxVersionsPerProfile;
+        SaveOnExitEnabled = settingsService.Current.SaveOnExitEnabled;
+        AutoSaveOnExit = settingsService.Current.AutoSaveOnExit;
 
         RefreshState();
     }
@@ -170,7 +210,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void SaveCurrentProfile()
+    private async Task SaveCurrentProfileAsync()
     {
         var name = SanitizeProfileName(NewProfileName);
         if (string.IsNullOrEmpty(name))
@@ -186,7 +226,7 @@ public partial class MainViewModel : ObservableObject
         try
         {
             UnlockCacheIfNeeded();
-            _profileManager.SaveCurrentAsProfile(name, AppendLog);
+            await SaveActiveProfileWithVersioningAsync(name);
             RefreshState();
             StatusText = $"Profile '{name}' saved.";
         }
@@ -256,9 +296,78 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        _cacheProtector.ForceRestore(wtfPath);
-        IsCacheLocked = _cacheProtector.IsLocked;
-        StatusText = "Files restored — type /reload in WoW!";
+        if (IsWowRunning)
+        {
+            SeedMissingCacheFilesFromProfile(wtfPath);
+            _cacheProtector.ForceRestore(wtfPath);
+            IsCacheLocked = _cacheProtector.IsLocked;
+            StatusText = "Files restored — type /reload in WoW!";
+        }
+        else
+        {
+            RestoreFromSavedProfile();
+        }
+    }
+
+    private void SeedMissingCacheFilesFromProfile(string wtfPath)
+    {
+        if (string.IsNullOrEmpty(CurrentProfileId))
+            return;
+
+        var profilePath = Path.Combine(ProfilesPath, CurrentProfileId);
+        if (!_fs.DirectoryExists(profilePath))
+            return;
+
+        var profileCacheFiles = _cacheProtector.CollectCacheFiles(profilePath);
+        var seeded = 0;
+
+        foreach (var profileFile in profileCacheFiles)
+        {
+            var relativePath = Path.GetRelativePath(profilePath, profileFile);
+            var wtfFile = Path.Combine(wtfPath, relativePath);
+
+            if (_fs.FileExists(wtfFile))
+                continue;
+
+            var dir = Path.GetDirectoryName(wtfFile);
+            if (dir is not null && !_fs.DirectoryExists(dir))
+                _fs.CreateDirectory(dir);
+
+            _fs.CopyFile(profileFile, wtfFile);
+            seeded++;
+        }
+
+        if (seeded > 0)
+            AppendLog($"Restored {seeded} missing cache file(s) from saved profile.");
+    }
+
+    private void RestoreFromSavedProfile()
+    {
+        if (string.IsNullOrEmpty(CurrentProfileId))
+        {
+            AppendLog("No active profile to restore.");
+            return;
+        }
+
+        IsBusy = true;
+        StatusText = "Restoring...";
+        try
+        {
+            UnlockCacheIfNeeded();
+            _profileManager.RestoreActiveProfile(AppendLog);
+            RefreshState();
+            StatusText = $"Profile restored: {CurrentProfileName}";
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"ERROR: {ex.Message}");
+            StatusText = "Restore failed!";
+            _showError(ex.Message, "Restore Error");
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     [RelayCommand]
@@ -331,6 +440,10 @@ public partial class MainViewModel : ObservableObject
         _settingsService.Current.GamePath = GamePath;
         _settingsService.Current.ProfilesPath = ProfilesPath;
         _settingsService.Current.UnlockDelaySeconds = UnlockDelay;
+        _settingsService.Current.VersioningEnabled = VersioningEnabled;
+        _settingsService.Current.MaxVersionsPerProfile = MaxVersionsPerProfile;
+        _settingsService.Current.SaveOnExitEnabled = SaveOnExitEnabled;
+        _settingsService.Current.AutoSaveOnExit = AutoSaveOnExit;
         _settingsService.Save();
         IsSettingsVisible = false;
         AppendLog("Settings saved.");
@@ -408,8 +521,9 @@ public partial class MainViewModel : ObservableObject
 
     private void StartProcessMonitor()
     {
-        var ct = _unlockCts?.Token ?? CancellationToken.None;
-        _ = MonitorWowAsync(ct);
+        _monitorCts?.Cancel();
+        _monitorCts = new CancellationTokenSource();
+        _ = MonitorWowAsync(_monitorCts.Token);
     }
 
     private async Task RunUnlockCountdownAsync(int totalSeconds, CancellationToken ct)
@@ -445,6 +559,10 @@ public partial class MainViewModel : ObservableObject
         try
         {
             await _processMonitor.WaitForExitAsync(ct);
+
+            // WoW may still be flushing writes after the process exits
+            await Task.Delay(2000, ct);
+
             Application.Current?.Dispatcher.Invoke(() =>
             {
                 IsWowRunning = false;
@@ -453,8 +571,195 @@ public partial class MainViewModel : ObservableObject
                 StatusText = "WoW closed. Ready.";
                 AppendLog("WoW process exited.");
             });
+
+            if (SaveOnExitEnabled)
+                await HandleSaveOnExitAsync();
         }
         catch (OperationCanceledException) { }
+    }
+
+    private async Task HandleSaveOnExitAsync()
+    {
+        var profileId = CurrentProfileId;
+        if (string.IsNullOrEmpty(profileId))
+            return;
+
+        var wtfPath = Path.Combine(GamePath, "WTF");
+        if (!_fs.DirectoryExists(wtfPath))
+            return;
+
+        if (AutoSaveOnExit)
+        {
+            await SaveActiveProfileWithVersioningAsync(profileId);
+            Application.Current?.Dispatcher.Invoke(() =>
+            {
+                RefreshState();
+                StatusText = $"Profile '{profileId}' auto-saved.";
+            });
+            return;
+        }
+
+        var tcs = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
+        _savePromptTcs = tcs;
+        Application.Current?.Dispatcher.Invoke(() =>
+        {
+            SavePromptProfileName = profileId;
+            IsSavePromptVisible = true;
+        });
+
+        var accepted = await tcs.Task;
+        if (accepted)
+        {
+            await SaveActiveProfileWithVersioningAsync(profileId);
+            Application.Current?.Dispatcher.Invoke(() =>
+            {
+                RefreshState();
+                StatusText = $"Profile '{profileId}' saved.";
+            });
+        }
+        else
+        {
+            AppendLog("Save skipped by user.");
+        }
+    }
+
+    [RelayCommand]
+    private void ToggleVersionHistory()
+    {
+        if (IsVersionHistoryVisible)
+        {
+            IsVersionHistoryVisible = false;
+            return;
+        }
+
+        var profileId = CurrentProfileId;
+        if (string.IsNullOrEmpty(profileId))
+        {
+            AppendLog("No active profile — nothing to show.");
+            return;
+        }
+
+        Versions.Clear();
+        foreach (var v in _versionService.GetVersions(profileId))
+            Versions.Add(v);
+
+        IsVersionHistoryVisible = true;
+    }
+
+    [RelayCommand]
+    private async Task RestoreVersionAsync(string versionId)
+    {
+        var version = Versions.FirstOrDefault(v => v.VersionId == versionId);
+        if (version is null)
+            return;
+
+        if (GuardWowRunning("Close the game before restoring a version."))
+            return;
+
+        try
+        {
+            await RunTrackedArchiveAsync(_versionService.RestoreVersionAsync(version));
+            IsVersionHistoryVisible = false;
+            RefreshState();
+            StatusText = $"Restored version {version.DisplayName}.";
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"ERROR: {ex.Message}");
+        }
+    }
+
+    [RelayCommand]
+    private void DeleteVersion(string versionId)
+    {
+        var version = Versions.FirstOrDefault(v => v.VersionId == versionId);
+        if (version is null)
+            return;
+
+        try
+        {
+            _versionService.DeleteVersion(version);
+            Versions.Remove(version);
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"ERROR: {ex.Message}");
+        }
+    }
+
+    [RelayCommand]
+    private void AcceptSavePrompt()
+    {
+        IsSavePromptVisible = false;
+        _savePromptTcs?.TrySetResult(true);
+    }
+
+    [RelayCommand]
+    private void SkipSavePrompt()
+    {
+        IsSavePromptVisible = false;
+        _savePromptTcs?.TrySetResult(false);
+    }
+
+    private async Task SaveActiveProfileWithVersioningAsync(string profileId)
+    {
+        var profilePath = Path.Combine(_profileManager.ProfilesPath, profileId);
+        if (VersioningEnabled && _fs.DirectoryExists(profilePath))
+            await RunTrackedArchiveAsync(_versionService.CreateVersionAsync(profileId));
+
+        _profileManager.SaveCurrentAsProfile(profileId, AppendLog);
+    }
+
+    private async Task RunTrackedArchiveAsync(Task archiveTask)
+    {
+        lock (_archiveLock)
+        {
+            _activeArchiveCount++;
+            _archiveDoneTcs ??= new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously
+            );
+        }
+
+        IsArchiving = true;
+        try
+        {
+            await archiveTask;
+        }
+        finally
+        {
+            TaskCompletionSource? tcs = null;
+            lock (_archiveLock)
+            {
+                _activeArchiveCount--;
+                if (_activeArchiveCount == 0)
+                {
+                    tcs = _archiveDoneTcs;
+                    _archiveDoneTcs = null;
+                }
+            }
+
+            if (tcs is not null)
+            {
+                IsArchiving = false;
+                tcs.TrySetResult();
+            }
+        }
+    }
+
+    public Task WaitForArchivingAsync()
+    {
+        lock (_archiveLock)
+        {
+            if (_activeArchiveCount == 0)
+                return Task.CompletedTask;
+
+            _archiveDoneTcs ??= new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously
+            );
+            return _archiveDoneTcs.Task;
+        }
     }
 
     private void AppendLog(string message)

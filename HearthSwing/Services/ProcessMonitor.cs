@@ -9,14 +9,14 @@ public sealed class ProcessMonitor : IProcessMonitor
     private const string WowExeName = "WowClassic.exe";
     private readonly IProcessManager _processManager;
     private readonly IFileSystem _fs;
+    private readonly IAppLogger _logger;
 
-    public ProcessMonitor(IProcessManager processManager, IFileSystem fileSystem)
+    public ProcessMonitor(IProcessManager processManager, IFileSystem fileSystem, IAppLogger logger)
     {
         _processManager = processManager;
         _fs = fileSystem;
+        _logger = logger;
     }
-
-    public event Action<string>? Log;
 
     public bool IsWowRunning()
     {
@@ -29,7 +29,7 @@ public sealed class ProcessMonitor : IProcessMonitor
         if (!_fs.FileExists(exePath))
             throw new FileNotFoundException($"WoW executable not found: {exePath}");
 
-        Log?.Invoke($"Launching {WowExeName}...");
+        _logger.Log($"Launching {WowExeName}...");
         _processManager.Start(
             new ProcessStartInfo
             {

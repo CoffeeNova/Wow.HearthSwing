@@ -21,20 +21,20 @@ public sealed class CacheProtector : ICacheProtector
     ];
 
     private readonly IFileSystem _fs;
+    private readonly IAppLogger _logger;
     private readonly Dictionary<string, byte[]> _backups = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<FileSystemWatcher> _watchers = [];
     private bool _locked;
     private bool _disposed;
 
-    public CacheProtector(IFileSystem fileSystem)
+    public CacheProtector(IFileSystem fileSystem, IAppLogger logger)
     {
         _fs = fileSystem;
+        _logger = logger;
     }
 
     public bool IsLocked => _locked;
     public int ProtectedFileCount => _backups.Count;
-
-    public event Action<string>? Log;
 
     public List<string> CollectCacheFiles(string wtfPath)
     {
@@ -73,7 +73,7 @@ public sealed class CacheProtector : ICacheProtector
         TouchOldCompanions(wtfPath, now);
         StartWatchers(wtfPath);
         _locked = true;
-        Log?.Invoke($"Locked {_backups.Count} cache files (read-only + timestamps touched).");
+        _logger.Log($"Locked {_backups.Count} cache files (read-only + timestamps touched).");
     }
 
     public void Unlock()
@@ -85,7 +85,7 @@ public sealed class CacheProtector : ICacheProtector
         RemoveReadOnlyFromBackups();
         _backups.Clear();
         _locked = false;
-        Log?.Invoke("Cache files unlocked.");
+        _logger.Log("Cache files unlocked.");
     }
 
     /// <summary>
@@ -107,7 +107,7 @@ public sealed class CacheProtector : ICacheProtector
         StartWatchers(wtfPath);
         _locked = true;
 
-        Log?.Invoke(
+        _logger.Log(
             $"Force-restored {restored} cache files with fresh timestamps. Type /reload in WoW."
         );
     }
@@ -134,7 +134,7 @@ public sealed class CacheProtector : ICacheProtector
             }
             catch (Exception ex)
             {
-                Log?.Invoke($"Warning: could not back up {Path.GetFileName(file)}: {ex.Message}");
+                _logger.Log($"Warning: could not back up {Path.GetFileName(file)}: {ex.Message}");
             }
         }
     }
@@ -167,7 +167,7 @@ public sealed class CacheProtector : ICacheProtector
             { /* skip */
             }
         }
-        Log?.Invoke($"Snapshot: {_backups.Count} files captured for restore.");
+        _logger.Log($"Snapshot: {_backups.Count} files captured for restore.");
     }
 
     private int RestoreAllFromBackups(DateTime now)
@@ -185,7 +185,7 @@ public sealed class CacheProtector : ICacheProtector
             }
             catch (Exception ex)
             {
-                Log?.Invoke($"Warning: could not restore {Path.GetFileName(file)}: {ex.Message}");
+                _logger.Log($"Warning: could not restore {Path.GetFileName(file)}: {ex.Message}");
             }
         }
         return restored;
@@ -215,7 +215,7 @@ public sealed class CacheProtector : ICacheProtector
             }
             catch (Exception ex)
             {
-                Log?.Invoke($"Warning: could not create watcher for {dir}: {ex.Message}");
+                _logger.Log($"Warning: could not create watcher for {dir}: {ex.Message}");
             }
         }
     }
@@ -242,13 +242,13 @@ public sealed class CacheProtector : ICacheProtector
             SetReadOnly(e.FullPath, false);
             _fs.WriteAllBytes(e.FullPath, backup);
             SetReadOnly(e.FullPath, true);
-            Log?.Invoke(
+            _logger.Log(
                 $"Restored {Path.GetFileName(e.FullPath)} from backup (sync attempt blocked)."
             );
         }
         catch (Exception ex)
         {
-            Log?.Invoke($"Warning: could not restore {Path.GetFileName(e.FullPath)}: {ex.Message}");
+            _logger.Log($"Warning: could not restore {Path.GetFileName(e.FullPath)}: {ex.Message}");
         }
     }
 
