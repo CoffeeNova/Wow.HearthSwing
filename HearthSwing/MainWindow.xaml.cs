@@ -3,9 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using HearthSwing.Models;
-using HearthSwing.Services;
 using HearthSwing.ViewModels;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace HearthSwing;
 
@@ -24,18 +22,11 @@ public partial class MainWindow : Window
     private readonly MainViewModel _vm;
     private bool _closePending;
 
-    public MainWindow()
+    public MainWindow(MainViewModel vm)
     {
         InitializeComponent();
 
-        var services = new ServiceCollection();
-        ConfigureServices(services);
-        var provider = services.BuildServiceProvider();
-
-        var settingsService = provider.GetRequiredService<ISettingsService>();
-        settingsService.Load();
-
-        _vm = provider.GetRequiredService<MainViewModel>();
+        _vm = vm;
         DataContext = _vm;
 
         _vm.PropertyChanged += OnViewModelPropertyChanged;
@@ -59,34 +50,6 @@ public partial class MainWindow : Window
         await _vm.WaitForArchivingAsync();
 
         Close();
-    }
-
-    private static void ConfigureServices(IServiceCollection services)
-    {
-        services.AddSingleton<AppLogger>();
-        services.AddSingleton<IAppLogger>(sp => sp.GetRequiredService<AppLogger>());
-        services.AddSingleton<IFileSystem, FileSystem>();
-        services.AddSingleton<IProcessManager, SystemProcessManager>();
-        services.AddSingleton<ISettingsService, SettingsService>();
-        services.AddSingleton<IProfileManager, ProfileManager>();
-        services.AddSingleton<ICacheProtector, CacheProtector>();
-        services.AddSingleton<IProcessMonitor, ProcessMonitor>();
-        services.AddSingleton<IUpdateService, UpdateService>();
-        services.AddSingleton<IArchiveService, TarGzArchiveService>();
-        services.AddSingleton<IProfileVersionService, ProfileVersionService>();
-
-        services.AddSingleton<Action<string, string>>(_ =>
-            (message, title) =>
-                MessageBox.Show(message, title, MessageBoxButton.OK, MessageBoxImage.Warning)
-        );
-
-        services.AddSingleton<Func<string, string, bool>>(_ =>
-            (message, title) =>
-                MessageBox.Show(message, title, MessageBoxButton.YesNo, MessageBoxImage.Question)
-                == MessageBoxResult.Yes
-        );
-
-        services.AddSingleton<MainViewModel>();
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
