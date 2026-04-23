@@ -38,17 +38,8 @@ public partial class App : Application
         services.AddSingleton<IUpdateService, UpdateService>();
         services.AddSingleton<IArchiveService, TarGzArchiveService>();
         services.AddSingleton<IProfileVersionService, ProfileVersionService>();
-
-        services.AddSingleton<Action<string, string>>(_ =>
-            (message, title) =>
-                MessageBox.Show(message, title, MessageBoxButton.OK, MessageBoxImage.Warning)
-        );
-
-        services.AddSingleton<Func<string, string, bool>>(_ =>
-            (message, title) =>
-                MessageBox.Show(message, title, MessageBoxButton.YesNo, MessageBoxImage.Question)
-                == MessageBoxResult.Yes
-        );
+        services.AddSingleton<IDialogService, WpfDialogService>();
+        services.AddSingleton<IUiDispatcher, WpfUiDispatcher>();
 
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<MainWindow>();
