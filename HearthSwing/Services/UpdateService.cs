@@ -96,7 +96,7 @@ public sealed class UpdateService : IUpdateService
     /// Deletes leftover *.old files from a previous update.
     /// Call on startup from the UI thread.
     /// </summary>
-    public static void CleanupPreviousUpdate()
+    public void CleanupPreviousUpdate()
     {
         var appDir = AppContext.BaseDirectory;
         try
@@ -104,8 +104,9 @@ public sealed class UpdateService : IUpdateService
             foreach (var oldFile in Directory.GetFiles(appDir, "*.old"))
                 File.Delete(oldFile);
         }
-        catch
-        { /* best effort */
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not clean up previous update files in {AppDirectory}.", appDir);
         }
     }
 

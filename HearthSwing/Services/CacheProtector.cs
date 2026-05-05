@@ -1,4 +1,5 @@
 using System.IO;
+using HearthSwing.Models.Profiles;
 using Microsoft.Extensions.Logging;
 
 namespace HearthSwing.Services;
@@ -28,6 +29,12 @@ public sealed class CacheProtector : ICacheProtector
     private bool _locked;
     private bool _disposed;
 
+    private string? _currentWtfPath;
+    private ProfileGranularity _currentGranularity;
+    private string? _currentAccountName;
+    private string? _currentRealmName;
+    private string? _currentCharacterName;
+
     public CacheProtector(IFileSystem fileSystem, ILogger<CacheProtector> logger)
     {
         _fs = fileSystem;
@@ -37,42 +44,79 @@ public sealed class CacheProtector : ICacheProtector
     public bool IsLocked => _locked;
     public int ProtectedFileCount => _backups.Count;
 
-    public List<string> CollectCacheFiles(string wtfPath)
+    public List<string> CollectCacheFiles(
+        string wtfPath,
+        ProfileGranularity granularity = ProfileGranularity.FullWtf,
+        string? accountName = null,
+        string? realmName = null,
+        string? characterName = null
+    )
     {
         var result = new List<string>();
-        if (!_fs.DirectoryExists(wtfPath))
-            return result;
 
-        foreach (var pattern in CachePatterns)
+        switch (granularity)
         {
-            try
-            {
-                result.AddRange(_fs.GetFiles(wtfPath, pattern, SearchOption.AllDirectories));
-            }
-            catch (UnauthorizedAccessException) { }
-            catch (DirectoryNotFoundException) { }
+            case ProfileGranularity.PerAccount when accountName is not null:
+                CollectFromDirectory(
+                    Path.Combine(wtfPath, "Account", accountName),
+                    SearchOption.AllDirectories,
+                    result
+                );
+                break;
+
+            case ProfileGranularity.PerCharacter
+                when accountName is not null
+                    && realmName is not null
+                    && characterName is not null:
+                var accountPath = Path.Combine(wtfPath, "Account", accountName);
+                CollectFromDirectory(accountPath, SearchOption.TopDirectoryOnly, result);
+                CollectFromDirectory(
+                    Path.Combine(accountPath, realmName, characterName),
+                    SearchOption.AllDirectories,
+                    result
+                );
+                break;
+
+            default:
+                CollectFromDirectory(wtfPath, SearchOption.AllDirectories, result);
+                break;
         }
 
         return result.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     /// <summary>
-    /// Creates in-memory backups of all cache files, touches timestamps so the WoW
+    /// Creates in-memory backups of all scoped cache files, touches timestamps so the WoW
     /// client considers local data newer than server data, sets read-only, and starts
     /// FileSystemWatchers to restore files if WoW overwrites them.
     /// </summary>
-    public void Lock(string wtfPath)
+    public void Lock(
+        string wtfPath,
+        ProfileGranularity granularity = ProfileGranularity.FullWtf,
+        string? accountName = null,
+        string? realmName = null,
+        string? characterName = null
+    )
     {
         if (_locked)
-            return;
+        {
+            _logger.LogInformation("Refreshing cache protection for {WtfPath}.", wtfPath);
+            Unlock();
+        }
 
-        var files = CollectCacheFiles(wtfPath);
+        _currentWtfPath = wtfPath;
+        _currentGranularity = granularity;
+        _currentAccountName = accountName;
+        _currentRealmName = realmName;
+        _currentCharacterName = characterName;
+
+        var files = CollectCacheFiles(wtfPath, granularity, accountName, realmName, characterName);
         _backups.Clear();
 
         var now = DateTime.Now;
         BackupAndProtectFiles(files, now);
         TouchOldCompanions(wtfPath, now);
-        StartWatchers(wtfPath);
+        StartWatchers(wtfPath, granularity, accountName, realmName, characterName);
         _locked = true;
         _logger.LogInformation("Locked {Count} cache files (read-only + timestamps touched).", _backups.Count);
     }
@@ -85,6 +129,7 @@ public sealed class CacheProtector : ICacheProtector
         StopWatchers();
         RemoveReadOnlyFromBackups();
         _backups.Clear();
+        ClearScopeState();
         _locked = false;
         _logger.LogInformation("Cache files unlocked.");
     }
@@ -105,7 +150,13 @@ public sealed class CacheProtector : ICacheProtector
         StopWatchers();
         var restored = RestoreAllFromBackups(now);
         TouchOldCompanions(wtfPath, now);
-        StartWatchers(wtfPath);
+        StartWatchers(
+            wtfPath,
+            _currentGranularity,
+            _currentAccountName,
+            _currentRealmName,
+            _currentCharacterName
+        );
         _locked = true;
 
         _logger.LogInformation(
@@ -122,6 +173,31 @@ public sealed class CacheProtector : ICacheProtector
         if (_locked)
             Unlock();
         StopWatchers();
+    }
+
+    private void ClearScopeState()
+    {
+        _currentWtfPath = null;
+        _currentGranularity = ProfileGranularity.FullWtf;
+        _currentAccountName = null;
+        _currentRealmName = null;
+        _currentCharacterName = null;
+    }
+
+    private void CollectFromDirectory(string directory, SearchOption searchOption, List<string> result)
+    {
+        if (!_fs.DirectoryExists(directory))
+            return;
+
+        foreach (var pattern in CachePatterns)
+        {
+            try
+            {
+                result.AddRange(_fs.GetFiles(directory, pattern, searchOption));
+            }
+            catch (UnauthorizedAccessException) { }
+            catch (DirectoryNotFoundException) { }
+        }
     }
 
     private void BackupAndProtectFiles(List<string> files, DateTime now)
@@ -158,7 +234,13 @@ public sealed class CacheProtector : ICacheProtector
 
     private void SnapshotCurrentState(string wtfPath)
     {
-        var files = CollectCacheFiles(wtfPath);
+        var files = CollectCacheFiles(
+            wtfPath,
+            _currentGranularity,
+            _currentAccountName,
+            _currentRealmName,
+            _currentCharacterName
+        );
         foreach (var file in files)
         {
             try
@@ -193,32 +275,64 @@ public sealed class CacheProtector : ICacheProtector
         return restored;
     }
 
-    private void StartWatchers(string wtfPath)
+    private void StartWatchers(
+        string wtfPath,
+        ProfileGranularity granularity,
+        string? accountName,
+        string? realmName,
+        string? characterName
+    )
     {
-        var accountDir = Path.Combine(wtfPath, "Account");
-        var dirsToWatch = new List<string> { wtfPath };
-        if (_fs.DirectoryExists(accountDir))
-            dirsToWatch.Add(accountDir);
+        foreach (var (dir, includeSubdirs) in BuildWatchTargets(wtfPath, granularity, accountName, realmName, characterName))
+            TryAddWatcher(dir, includeSubdirs);
+    }
 
-        foreach (var dir in dirsToWatch)
+    private IEnumerable<(string directory, bool includeSubdirectories)> BuildWatchTargets(
+        string wtfPath,
+        ProfileGranularity granularity,
+        string? accountName,
+        string? realmName,
+        string? characterName
+    )
+    {
+        return granularity switch
         {
-            try
+            ProfileGranularity.PerAccount when accountName is not null =>
+                [(Path.Combine(wtfPath, "Account", accountName), true)],
+
+            ProfileGranularity.PerCharacter
+                when accountName is not null && realmName is not null && characterName is not null =>
+                [
+                    (Path.Combine(wtfPath, "Account", accountName), false),
+                    (Path.Combine(wtfPath, "Account", accountName, realmName, characterName), true),
+                ],
+
+            // FullWtf and any fallback: watch the entire WTF root
+            _ => [(wtfPath, true)],
+        };
+    }
+
+    private void TryAddWatcher(string directory, bool includeSubdirectories)
+    {
+        if (!_fs.DirectoryExists(directory))
+            return;
+
+        try
+        {
+            var watcher = new FileSystemWatcher(directory)
             {
-                var watcher = new FileSystemWatcher(dir)
-                {
-                    IncludeSubdirectories = true,
-                    NotifyFilter =
-                        NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.CreationTime,
-                    EnableRaisingEvents = true,
-                };
-                watcher.Changed += OnCacheFileChanged;
-                watcher.Created += OnCacheFileChanged;
-                _watchers.Add(watcher);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning("Could not create watcher for {Directory}: {Error}", dir, ex.Message);
-            }
+                IncludeSubdirectories = includeSubdirectories,
+                NotifyFilter =
+                    NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.CreationTime,
+                EnableRaisingEvents = true,
+            };
+            watcher.Changed += OnCacheFileChanged;
+            watcher.Created += OnCacheFileChanged;
+            _watchers.Add(watcher);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Could not create watcher for {Directory}: {Error}", directory, ex.Message);
         }
     }
 

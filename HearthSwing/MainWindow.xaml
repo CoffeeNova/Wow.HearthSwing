@@ -1,4 +1,4 @@
-﻿<Window
+<Window
   x:Class="HearthSwing.MainWindow"
   xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
   xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -193,12 +193,14 @@
       <!-- 3: Action buttons -->
       <RowDefinition Height="Auto" />
       <!-- 4: Save profile -->
+      <RowDefinition Height="Auto" />
+      <!-- 5: Character picker -->
       <RowDefinition Height="*" />
-      <!-- 5: Log -->
+      <!-- 6: Log -->
       <RowDefinition Height="Auto" />
-      <!-- 6: Status bar -->
+      <!-- 7: Status bar -->
       <RowDefinition Height="Auto" />
-      <!-- 7: Settings link -->
+      <!-- 8: Settings link -->
     </Grid.RowDefinitions>
 
     <!-- Title -->
@@ -334,9 +336,161 @@
       </Grid>
     </Border>
 
-    <!-- Log area -->
+    <!-- Character Picker panel (row 5) -->
     <Border
       Grid.Row="5"
+      Background="{StaticResource PanelBg}"
+      CornerRadius="6"
+      Padding="8,6"
+      Margin="0,4,0,0"
+    >
+      <StackPanel>
+
+        <!-- Mode toggle row -->
+        <CheckBox
+          Content="Character Mode"
+          IsChecked="{Binding CharacterPicker.IsCharacterModeEnabled}"
+          Foreground="{StaticResource TextSecondary}"
+          FontSize="12"
+          Cursor="Hand"
+          Margin="0,0,0,4"
+        />
+
+        <!-- Picker fields (only visible when character mode is on) -->
+        <StackPanel
+          Visibility="{Binding CharacterPicker.IsCharacterModeEnabled, Converter={StaticResource BoolToVis}}"
+        >
+
+          <!-- Owner (LocalProfileId) -->
+          <Grid Margin="0,0,0,4">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="70" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock
+              Text="Owner:"
+              Foreground="{StaticResource TextSecondary}"
+              FontSize="11"
+              VerticalAlignment="Center"
+            />
+            <TextBox
+              Grid.Column="1"
+              Text="{Binding CharacterPicker.LocalProfileId, UpdateSourceTrigger=PropertyChanged}"
+              FontSize="11"
+              Padding="4,2"
+              ToolTip="Your local name (e.g. Ihar, Wife)"
+            />
+          </Grid>
+
+          <!-- Account -->
+          <Grid Margin="0,0,0,4">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="70" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock
+              Text="Account:"
+              Foreground="{StaticResource TextSecondary}"
+              FontSize="11"
+              VerticalAlignment="Center"
+            />
+            <ComboBox
+              Grid.Column="1"
+              ItemsSource="{Binding CharacterPicker.Accounts}"
+              SelectedItem="{Binding CharacterPicker.SelectedAccount}"
+              FontSize="11"
+              Padding="4,2"
+            />
+          </Grid>
+
+          <!-- Realm (only when account selected) -->
+          <Grid
+            Margin="0,0,0,4"
+          >
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="70" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock
+              Text="Realm:"
+              Foreground="{StaticResource TextSecondary}"
+              FontSize="11"
+              VerticalAlignment="Center"
+            />
+            <ComboBox
+              Grid.Column="1"
+              ItemsSource="{Binding CharacterPicker.Realms}"
+              SelectedItem="{Binding CharacterPicker.SelectedRealm}"
+              FontSize="11"
+              Padding="4,2"
+            />
+          </Grid>
+
+          <!-- Character (only when realm selected) -->
+          <Grid Margin="0,0,0,6">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="70" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock
+              Text="Character:"
+              Foreground="{StaticResource TextSecondary}"
+              FontSize="11"
+              VerticalAlignment="Center"
+            />
+            <ComboBox
+              Grid.Column="1"
+              ItemsSource="{Binding CharacterPicker.Characters}"
+              SelectedItem="{Binding CharacterPicker.SelectedCharacter}"
+              FontSize="11"
+              Padding="4,2"
+            />
+          </Grid>
+
+          <!-- Save mode -->
+          <StackPanel Orientation="Horizontal">
+            <TextBlock
+              Text="Mode:"
+              Foreground="{StaticResource TextSecondary}"
+              FontSize="11"
+              VerticalAlignment="Center"
+              Width="62"
+            />
+            <RadioButton
+              Content="Full WTF"
+              IsChecked="{Binding CharacterPicker.IsSaveModeFullWtf}"
+              Foreground="{StaticResource TextSecondary}"
+              FontSize="11"
+              VerticalAlignment="Center"
+              Margin="0,0,10,0"
+              Cursor="Hand"
+            />
+            <RadioButton
+              Content="Account"
+              IsChecked="{Binding CharacterPicker.IsSaveModePerAccount}"
+              Foreground="{StaticResource TextSecondary}"
+              FontSize="11"
+              VerticalAlignment="Center"
+              Margin="0,0,10,0"
+              Cursor="Hand"
+            />
+            <RadioButton
+              Content="Character"
+              IsChecked="{Binding CharacterPicker.IsSaveModePerCharacter}"
+              Foreground="{StaticResource TextSecondary}"
+              FontSize="11"
+              VerticalAlignment="Center"
+              Cursor="Hand"
+            />
+          </StackPanel>
+
+        </StackPanel>
+      </StackPanel>
+    </Border>
+
+    <!-- Log area -->
+    <Border
+      Grid.Row="6"
       Background="{StaticResource PanelBg}"
       CornerRadius="6"
       Margin="0,8"
@@ -355,7 +509,7 @@
 
     <!-- Status bar -->
     <Border
-      Grid.Row="6"
+      Grid.Row="7"
       Background="{StaticResource CardBg}"
       CornerRadius="4"
       Padding="8,4"
@@ -396,7 +550,7 @@
     </Border>
 
     <!-- Footer links -->
-    <StackPanel Grid.Row="7" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,4,0,0">
+    <StackPanel Grid.Row="8" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,4,0,0">
       <Button
         Content="How to use"
         Style="{StaticResource LinkBtn}"
@@ -425,7 +579,7 @@
     <!-- Settings panel (overlay) -->
     <Border
       Grid.Row="0"
-      Grid.RowSpan="8"
+      Grid.RowSpan="9"
       Background="#ee1a1a2e"
       CornerRadius="8"
       Visibility="{Binding IsSettingsVisible, Converter={StaticResource BoolToVis}}"
@@ -550,7 +704,7 @@
     <!-- About overlay -->
     <Border
       Grid.Row="0"
-      Grid.RowSpan="8"
+      Grid.RowSpan="9"
       Background="#ee1a1a2e"
       CornerRadius="8"
       Visibility="{Binding IsAboutVisible, Converter={StaticResource BoolToVis}}"
@@ -617,7 +771,7 @@
     <!-- How to use overlay -->
     <Border
       Grid.Row="0"
-      Grid.RowSpan="8"
+      Grid.RowSpan="9"
       Background="#ee1a1a2e"
       CornerRadius="8"
       Visibility="{Binding IsHowToUseVisible, Converter={StaticResource BoolToVis}}"
@@ -701,7 +855,7 @@ HearthSwing transfers macros, keybindings, edit mode layout, and addon settings.
     <!-- Save prompt (inline, shown when WoW exits) -->
     <Border
       Grid.Row="0"
-      Grid.RowSpan="8"
+      Grid.RowSpan="9"
       Background="#ee1a1a2e"
       CornerRadius="8"
       Visibility="{Binding IsSavePromptVisible, Converter={StaticResource BoolToVis}}"
@@ -753,7 +907,7 @@ HearthSwing transfers macros, keybindings, edit mode layout, and addon settings.
     <!-- Archiving in progress overlay -->
     <Border
       Grid.Row="0"
-      Grid.RowSpan="8"
+      Grid.RowSpan="9"
       Background="#ee1a1a2e"
       CornerRadius="8"
       Visibility="{Binding IsCloseBlockedByArchiving, Converter={StaticResource BoolToVis}}"
@@ -784,7 +938,7 @@ HearthSwing transfers macros, keybindings, edit mode layout, and addon settings.
     <!-- Version history overlay -->
     <Border
       Grid.Row="0"
-      Grid.RowSpan="8"
+      Grid.RowSpan="9"
       Background="#ee1a1a2e"
       CornerRadius="8"
       Visibility="{Binding IsVersionHistoryVisible, Converter={StaticResource BoolToVis}}"

@@ -4,6 +4,7 @@ using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HearthSwing.Models;
+using HearthSwing.Models.WoW;
 using HearthSwing.Services;
 
 namespace HearthSwing.ViewModels;
@@ -12,14 +13,14 @@ public partial class MainViewModel : ObservableObject
 {
     private readonly ISettingsService _settingsService;
     private readonly IProfileManager _profileManager;
-    private readonly ICacheProtector _cacheProtector;
+    private readonly ISwitchingOrchestrator _orchestrator;
     private readonly IProcessMonitor _processMonitor;
-    private readonly IFileSystem _fs;
     private readonly IUpdateService _updateService;
     private readonly IProfileVersionService _versionService;
     private readonly IDialogService _dialogService;
     private readonly IUiDispatcher _uiDispatcher;
     private readonly IUiLogSink _logSink;
+    private readonly IWtfInspector _wtfInspector;
     private CancellationTokenSource? _unlockCts;
     private CancellationTokenSource? _monitorCts;
     private TaskCompletionSource<bool>? _savePromptTcs;
@@ -106,6 +107,8 @@ public partial class MainViewModel : ObservableObject
 
     public ObservableCollection<ProfileVersion> Versions { get; } = [];
 
+    public CharacterPickerViewModel CharacterPicker { get; } = new();
+
     public string AppVersion { get; } = GetVersion();
 
     private static string GetVersion()
@@ -125,28 +128,29 @@ public partial class MainViewModel : ObservableObject
     public MainViewModel(
         ISettingsService settingsService,
         IProfileManager profileManager,
-        ICacheProtector cacheProtector,
+        ISwitchingOrchestrator orchestrator,
         IProcessMonitor processMonitor,
-        IFileSystem fileSystem,
         IUpdateService updateService,
         IProfileVersionService versionService,
         IDialogService dialogService,
         IUiDispatcher uiDispatcher,
-        IUiLogSink logSink
+        IUiLogSink logSink,
+        IWtfInspector wtfInspector
     )
     {
         _settingsService = settingsService;
         _profileManager = profileManager;
-        _cacheProtector = cacheProtector;
+        _orchestrator = orchestrator;
         _processMonitor = processMonitor;
-        _fs = fileSystem;
         _updateService = updateService;
         _versionService = versionService;
         _dialogService = dialogService;
         _uiDispatcher = uiDispatcher;
         _logSink = logSink;
+        _wtfInspector = wtfInspector;
 
         _logSink.MessageLogged += OnLogMessage;
+        _orchestrator.Log += OnLogMessage;
 
         GamePath = settingsService.Current.GamePath;
         ProfilesPath = settingsService.Current.ProfilesPath;
@@ -166,11 +170,24 @@ public partial class MainViewModel : ObservableObject
         CurrentProfileId = profile?.Id ?? string.Empty;
         NewProfileName = profile?.Id ?? string.Empty;
         IsWowRunning = _processMonitor.IsWowRunning();
-        IsCacheLocked = _cacheProtector.IsLocked;
+        IsCacheLocked = _orchestrator.IsCacheLocked;
 
         Profiles.Clear();
         foreach (var p in _profileManager.DiscoverProfiles())
             Profiles.Add(p);
+
+        if (!string.IsNullOrWhiteSpace(GamePath))
+        {
+            try
+            {
+                var installation = _wtfInspector.Inspect(GamePath);
+                CharacterPicker.Refresh(installation);
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"Warning: WTF inspection failed — {ex.Message}");
+            }
+        }
     }
 
     [RelayCommand]
@@ -193,8 +210,7 @@ public partial class MainViewModel : ObservableObject
         StatusText = "Switching...";
         try
         {
-            UnlockCacheIfNeeded();
-            _profileManager.SwitchTo(target);
+            _orchestrator.SwitchTo(target);
             RefreshState();
             StatusText = $"Active: {CurrentProfileName}";
         }
@@ -213,23 +229,42 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private async Task SaveCurrentProfileAsync()
     {
-        var name = SanitizeProfileName(NewProfileName);
-        if (string.IsNullOrEmpty(name))
-        {
-            AppendLog("Enter a profile name first.");
-            return;
-        }
-
         if (GuardWowRunning("Close the game before saving a profile."))
             return;
 
         IsBusy = true;
         try
         {
-            UnlockCacheIfNeeded();
-            await SaveActiveProfileWithVersioningAsync(name);
-            RefreshState();
-            StatusText = $"Profile '{name}' saved.";
+            if (CharacterPicker.IsCharacterModeEnabled && CharacterPicker.CanBuildDescriptor)
+            {
+                var descriptor = CharacterPicker.TryBuildDescriptor(ProfilesPath);
+                if (descriptor is null)
+                {
+                    AppendLog("Cannot build profile descriptor — ensure all required fields are filled.");
+                    return;
+                }
+
+                await RunTrackedArchiveAsync(
+                    _orchestrator.SaveWithVersioningAsync(descriptor, VersioningEnabled)
+                );
+                RefreshState();
+                StatusText = $"Profile '{descriptor.DisplayName}' saved.";
+            }
+            else
+            {
+                var name = SanitizeProfileName(NewProfileName);
+                if (string.IsNullOrEmpty(name))
+                {
+                    AppendLog("Enter a profile name first.");
+                    return;
+                }
+
+                await RunTrackedArchiveAsync(
+                    _orchestrator.SaveWithVersioningAsync(name, VersioningEnabled)
+                );
+                RefreshState();
+                StatusText = $"Profile '{name}' saved.";
+            }
         }
         catch (Exception ex)
         {
@@ -255,9 +290,13 @@ public partial class MainViewModel : ObservableObject
         IsBusy = true;
         try
         {
-            LockCacheFiles();
+            var protectedCount = _orchestrator.LockForLaunch();
             _processMonitor.LaunchWow(GamePath);
             IsWowRunning = true;
+            IsCacheLocked = _orchestrator.IsCacheLocked;
+            StatusText = protectedCount > 0
+                ? $"Protected ({protectedCount} files) — Launching WoW..."
+                : "Launching WoW...";
             AppendLog("WoW launched. Cache files are protected from server sync.");
 
             StartUnlockCountdown();
@@ -265,6 +304,8 @@ public partial class MainViewModel : ObservableObject
         }
         catch (Exception ex)
         {
+            _orchestrator.UnlockCache();
+            IsCacheLocked = false;
             AppendLog($"ERROR: {ex.Message}");
             StatusText = "Launch failed!";
         }
@@ -280,7 +321,7 @@ public partial class MainViewModel : ObservableObject
     private void ForceUnlock()
     {
         _unlockCts?.Cancel();
-        _cacheProtector.Unlock();
+        _orchestrator.UnlockCache();
         IsCacheLocked = false;
         UnlockCountdown = 0;
         StatusText = IsWowRunning ? "WoW running (cache unlocked)" : "Ready";
@@ -290,84 +331,38 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void ForceRestore()
     {
-        var wtfPath = Path.Combine(GamePath, "WTF");
-        if (!_fs.DirectoryExists(wtfPath))
-        {
-            AppendLog("ERROR: WTF folder not found.");
-            return;
-        }
-
         if (IsWowRunning)
         {
-            SeedMissingCacheFilesFromProfile(wtfPath);
-            _cacheProtector.ForceRestore(wtfPath);
-            IsCacheLocked = _cacheProtector.IsLocked;
+            _orchestrator.ForceRestoreCache();
+            IsCacheLocked = _orchestrator.IsCacheLocked;
             StatusText = "Files restored — type /reload in WoW!";
         }
         else
         {
-            RestoreFromSavedProfile();
-        }
-    }
+            if (string.IsNullOrEmpty(CurrentProfileId))
+            {
+                AppendLog("No active profile to restore.");
+                return;
+            }
 
-    private void SeedMissingCacheFilesFromProfile(string wtfPath)
-    {
-        if (string.IsNullOrEmpty(CurrentProfileId))
-            return;
-
-        var profilePath = Path.Combine(ProfilesPath, CurrentProfileId);
-        if (!_fs.DirectoryExists(profilePath))
-            return;
-
-        var profileCacheFiles = _cacheProtector.CollectCacheFiles(profilePath);
-        var seeded = 0;
-
-        foreach (var profileFile in profileCacheFiles)
-        {
-            var relativePath = Path.GetRelativePath(profilePath, profileFile);
-            var wtfFile = Path.Combine(wtfPath, relativePath);
-
-            if (_fs.FileExists(wtfFile))
-                continue;
-
-            var dir = Path.GetDirectoryName(wtfFile);
-            if (dir is not null && !_fs.DirectoryExists(dir))
-                _fs.CreateDirectory(dir);
-
-            _fs.CopyFile(profileFile, wtfFile);
-            seeded++;
-        }
-
-        if (seeded > 0)
-            AppendLog($"Restored {seeded} missing cache file(s) from saved profile.");
-    }
-
-    private void RestoreFromSavedProfile()
-    {
-        if (string.IsNullOrEmpty(CurrentProfileId))
-        {
-            AppendLog("No active profile to restore.");
-            return;
-        }
-
-        IsBusy = true;
-        StatusText = "Restoring...";
-        try
-        {
-            UnlockCacheIfNeeded();
-            _profileManager.RestoreActiveProfile();
-            RefreshState();
-            StatusText = $"Profile restored: {CurrentProfileName}";
-        }
-        catch (Exception ex)
-        {
-            AppendLog($"ERROR: {ex.Message}");
-            StatusText = "Restore failed!";
-            _dialogService.ShowWarning(ex.Message, "Restore Error");
-        }
-        finally
-        {
-            IsBusy = false;
+            IsBusy = true;
+            StatusText = "Restoring...";
+            try
+            {
+                _orchestrator.RestoreFromSaved();
+                RefreshState();
+                StatusText = $"Profile restored: {CurrentProfileName}";
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"ERROR: {ex.Message}");
+                StatusText = "Restore failed!";
+                _dialogService.ShowWarning(ex.Message, "Restore Error");
+            }
+            finally
+            {
+                IsBusy = false;
+            }
         }
     }
 
@@ -481,15 +476,6 @@ public partial class MainViewModel : ObservableObject
         return true;
     }
 
-    private void UnlockCacheIfNeeded()
-    {
-        if (!_cacheProtector.IsLocked)
-            return;
-
-        _cacheProtector.Unlock();
-        IsCacheLocked = false;
-    }
-
     private static string? SanitizeProfileName(string? raw)
     {
         var name = raw?.Trim();
@@ -500,17 +486,6 @@ public partial class MainViewModel : ObservableObject
             name = name.Replace(c, '_');
 
         return name;
-    }
-
-    private void LockCacheFiles()
-    {
-        var wtfPath = Path.Combine(GamePath, "WTF");
-        if (!_fs.DirectoryExists(wtfPath))
-            return;
-
-        _cacheProtector.Lock(wtfPath);
-        IsCacheLocked = true;
-        StatusText = $"Protected ({_cacheProtector.ProtectedFileCount} files) — Launching WoW...";
     }
 
     private void StartUnlockCountdown()
@@ -544,7 +519,7 @@ public partial class MainViewModel : ObservableObject
             {
                 _uiDispatcher.Invoke(() =>
                 {
-                    _cacheProtector.Unlock();
+                    _orchestrator.UnlockCache();
                     IsCacheLocked = false;
                     UnlockCountdown = 0;
                     StatusText = IsWowRunning ? "WoW running (cache unlocked)" : "Ready";
@@ -559,15 +534,12 @@ public partial class MainViewModel : ObservableObject
     {
         try
         {
-            await _processMonitor.WaitForExitAsync(ct);
-
-            // WoW may still be flushing writes after the process exits
-            await Task.Delay(2000, ct);
+            await _orchestrator.WaitForWowExitAndCleanupAsync(2000, ct);
 
             _uiDispatcher.Invoke(() =>
             {
                 IsWowRunning = false;
-                UnlockCacheIfNeeded();
+                IsCacheLocked = false;
                 UnlockCountdown = 0;
                 StatusText = "WoW closed. Ready.";
                 AppendLog("WoW process exited.");
@@ -585,13 +557,11 @@ public partial class MainViewModel : ObservableObject
         if (string.IsNullOrEmpty(profileId))
             return;
 
-        var wtfPath = Path.Combine(GamePath, "WTF");
-        if (!_fs.DirectoryExists(wtfPath))
-            return;
-
         if (AutoSaveOnExit)
         {
-            await SaveActiveProfileWithVersioningAsync(profileId);
+            await RunTrackedArchiveAsync(
+                _orchestrator.SaveWithVersioningAsync(profileId, VersioningEnabled)
+            );
             _uiDispatcher.Invoke(() =>
             {
                 RefreshState();
@@ -613,7 +583,9 @@ public partial class MainViewModel : ObservableObject
         var accepted = await tcs.Task;
         if (accepted)
         {
-            await SaveActiveProfileWithVersioningAsync(profileId);
+            await RunTrackedArchiveAsync(
+                _orchestrator.SaveWithVersioningAsync(profileId, VersioningEnabled)
+            );
             _uiDispatcher.Invoke(() =>
             {
                 RefreshState();
@@ -702,15 +674,6 @@ public partial class MainViewModel : ObservableObject
     {
         IsSavePromptVisible = false;
         _savePromptTcs?.TrySetResult(false);
-    }
-
-    private async Task SaveActiveProfileWithVersioningAsync(string profileId)
-    {
-        var profilePath = Path.Combine(_profileManager.ProfilesPath, profileId);
-        if (VersioningEnabled && _fs.DirectoryExists(profilePath))
-            await RunTrackedArchiveAsync(_versionService.CreateVersionAsync(profileId));
-
-        _profileManager.SaveCurrentAsProfile(profileId);
     }
 
     private async Task RunTrackedArchiveAsync(Task archiveTask)

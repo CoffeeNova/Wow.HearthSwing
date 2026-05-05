@@ -1,10 +1,12 @@
 using AutoFixture;
 using AutoFixture.AutoNSubstitute;
 using HearthSwing.Models;
+using HearthSwing.Models.Profiles;
 using HearthSwing.Services;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
+using System.Text.Json;
 
 namespace HearthSwing.Tests.Services;
 
@@ -36,6 +38,36 @@ public class ProfileManagerTests
 
         _logger = new CapturingLogger<ProfileManager>();
         _sut = new ProfileManager(_settings, _fs, _logger);
+    }
+
+    private static bool IsActiveMarkerJson(string contents, string id, string snapshotPath)
+    {
+        using var document = JsonDocument.Parse(contents);
+        var root = document.RootElement;
+
+        return root.GetProperty("Id").GetString() == id
+            && root.GetProperty("SnapshotPath").GetString() == snapshotPath;
+    }
+
+    private static bool IsActiveMarkerWithAccount(
+        string contents,
+        string id,
+        ProfileGranularity granularity,
+        string accountName
+    )
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(contents);
+            var root = doc.RootElement;
+            return root.GetProperty("Id").GetString() == id
+                && root.GetProperty("Granularity").GetInt32() == (int)granularity
+                && root.GetProperty("AccountName").GetString() == accountName;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     [Test]
@@ -165,6 +197,32 @@ public class ProfileManagerTests
     }
 
     [Test]
+    public void DetectCurrentProfile_WhenMarkerContainsJson_UsesSnapshotPathFromActiveState()
+    {
+        // Arrange
+        var markerPath = @"C:\Game\Profiles\.active";
+        _fs.FileExists(markerPath).Returns(true);
+        _fs.ReadAllText(markerPath)
+            .Returns(
+                """
+                {
+                  "Id": "Alice",
+                  "Granularity": 0,
+                  "SnapshotPath": "C:\\Snapshots\\Alice"
+                }
+                """
+            );
+
+        // Act
+        var result = _sut.DetectCurrentProfile();
+
+        // Assert
+        result.ShouldNotBeNull();
+        result.Id.ShouldBe("Alice");
+        result.FolderPath.ShouldBe(@"C:\Snapshots\Alice");
+    }
+
+    [Test]
     public void SwitchTo_WhenTargetFolderNotFound_ThrowsInvalidOperationException()
     {
         // Arrange
@@ -213,7 +271,13 @@ public class ProfileManagerTests
         _fs.DidNotReceive().DeleteDirectory(@"C:\Game\WTF", true);
         _fs.Received().CreateDirectory(@"C:\Game\WTF");
         _fs.Received().CopyFile(@"C:\Game\Profiles\Alice\Config.wtf", @"C:\Game\WTF\Config.wtf");
-        _fs.Received().WriteAllText(@"C:\Game\Profiles\.active", "Alice");
+        _fs.Received()
+            .WriteAllText(
+                @"C:\Game\Profiles\.active",
+                Arg.Is<string>(contents =>
+                    IsActiveMarkerJson(contents, "Alice", @"C:\Game\Profiles\Alice")
+                )
+            );
         _logger.HasInformation(m => m.Contains("Profile switched to")).ShouldBeTrue();
     }
 
@@ -317,6 +381,61 @@ public class ProfileManagerTests
     }
 
     [Test]
+    public void SwitchTo_WhenActivationFails_RestoresPreviousWtfFromRollbackSnapshot()
+    {
+        // Arrange
+        string? rollbackPath = null;
+        var target = new ProfileInfo { Id = "Alice", FolderPath = @"C:\Game\Profiles\Alice" };
+
+        _fs.DirectoryExists(Arg.Any<string>())
+            .Returns(callInfo =>
+            {
+                var path = callInfo.Arg<string>();
+                return path == @"C:\Game\WTF"
+                    || path == @"C:\Game\Profiles"
+                    || path == @"C:\Game\Profiles\Alice"
+                    || path == rollbackPath;
+            });
+
+        _fs.GetFiles(Arg.Any<string>(), "*", SearchOption.TopDirectoryOnly)
+            .Returns(callInfo =>
+            {
+                var path = callInfo.ArgAt<string>(0);
+                if (path == @"C:\Game\WTF")
+                    return [@"C:\Game\WTF\Config.wtf"];
+
+                if (path == @"C:\Game\Profiles\Alice")
+                    return [@"C:\Game\Profiles\Alice\Config.wtf"];
+
+                if (rollbackPath is not null && path == rollbackPath)
+                    return [Path.Combine(rollbackPath, "Config.wtf")];
+
+                return [];
+            });
+
+        _fs.GetDirectories(Arg.Any<string>()).Returns([]);
+        _fs.When(fs =>
+                fs.CreateDirectory(
+                    Arg.Is<string>(path => path.Contains(@"\.rollback-WTF-", StringComparison.Ordinal))
+                )
+            )
+            .Do(callInfo => rollbackPath = callInfo.Arg<string>());
+        _fs.When(fs => fs.CopyFile(@"C:\Game\Profiles\Alice\Config.wtf", @"C:\Game\WTF\Config.wtf"))
+            .Do(_ => throw new IOException("copy failed"));
+
+        // Act
+        var ex = Should.Throw<IOException>(() => _sut.SwitchTo(target));
+
+        // Assert
+        ex.Message.ShouldContain("copy failed");
+        rollbackPath.ShouldNotBeNull();
+        _fs.Received().CopyFile(@"C:\Game\WTF\Config.wtf", Path.Combine(rollbackPath, "Config.wtf"));
+        _fs.Received().CopyFile(Path.Combine(rollbackPath, "Config.wtf"), @"C:\Game\WTF\Config.wtf");
+        _fs.Received().DeleteDirectory(rollbackPath, true);
+        _logger.HasWarning(m => m.Contains("Rollback completed")).ShouldBeTrue();
+    }
+
+    [Test]
     public void SaveCurrentAsProfile_WhenWtfNotFound_ThrowsInvalidOperationException()
     {
         // Arrange
@@ -343,7 +462,13 @@ public class ProfileManagerTests
         // Assert
         _fs.Received().CreateDirectory(@"C:\Game\Profiles\Test");
         _fs.Received().CopyFile(@"C:\Game\WTF\Config.wtf", @"C:\Game\Profiles\Test\Config.wtf");
-        _fs.Received().WriteAllText(@"C:\Game\Profiles\.active", "Test");
+        _fs.Received()
+            .WriteAllText(
+                @"C:\Game\Profiles\.active",
+                Arg.Is<string>(contents =>
+                    IsActiveMarkerJson(contents, "Test", @"C:\Game\Profiles\Test")
+                )
+            );
     }
 
     [Test]
@@ -492,5 +617,341 @@ public class ProfileManagerTests
         // Assert
         _fs.Received().SetAttributes(readOnlyFile, FileAttributes.None);
         _fs.Received().DeleteDirectory(@"C:\Game\WTF", true);
+    }
+
+    [Test]
+    public void SwitchTo_WhenFullWtfDescriptor_ReplacesEntireWtfDirectory()
+    {
+        // Arrange
+        var descriptor = new ProfileDescriptor
+        {
+            Id = "ihar-full",
+            Granularity = ProfileGranularity.FullWtf,
+            SnapshotPath = @"C:\Game\Profiles\owners\ihar\full",
+        };
+        _fs.DirectoryExists(@"C:\Game\Profiles\owners\ihar\full").Returns(true);
+        _fs.DirectoryExists(@"C:\Game\WTF").Returns(false);
+        _fs.GetFiles(@"C:\Game\Profiles\owners\ihar\full", "*", SearchOption.TopDirectoryOnly)
+            .Returns([@"C:\Game\Profiles\owners\ihar\full\config-cache.wtf"]);
+        _fs.GetDirectories(@"C:\Game\Profiles\owners\ihar\full").Returns([]);
+
+        // Act
+        _sut.SwitchTo(descriptor);
+
+        // Assert
+        _fs.Received().CreateDirectory(@"C:\Game\WTF");
+        _fs.Received()
+            .CopyFile(
+                @"C:\Game\Profiles\owners\ihar\full\config-cache.wtf",
+                @"C:\Game\WTF\config-cache.wtf"
+            );
+    }
+
+    [Test]
+    public void SwitchTo_WhenPerAccountDescriptor_ReplacesOnlyAccountSubtreeInWtf()
+    {
+        // Arrange
+        const string snapshotAccountPath = @"C:\Game\Profiles\owners\ihar\account__MyAccount\Account\MyAccount";
+        var descriptor = new ProfileDescriptor
+        {
+            Id = "ihar-account",
+            Granularity = ProfileGranularity.PerAccount,
+            AccountName = "MyAccount",
+            SnapshotPath = @"C:\Game\Profiles\owners\ihar\account__MyAccount",
+        };
+        _fs.DirectoryExists(snapshotAccountPath).Returns(true);
+        _fs.DirectoryExists(@"C:\Game\WTF\Account\MyAccount").Returns(false);
+        _fs.GetFiles(snapshotAccountPath, "*", SearchOption.TopDirectoryOnly)
+            .Returns([@"C:\Game\Profiles\owners\ihar\account__MyAccount\Account\MyAccount\config-cache.wtf"]);
+        _fs.GetDirectories(snapshotAccountPath).Returns([]);
+
+        // Act
+        _sut.SwitchTo(descriptor);
+
+        // Assert — only the account sub-directory in WTF is replaced, not the whole WTF root
+        _fs.Received().CreateDirectory(@"C:\Game\WTF\Account\MyAccount");
+        _fs.DidNotReceive().CreateDirectory(@"C:\Game\WTF");
+        _fs.DidNotReceive().DeleteDirectory(@"C:\Game\WTF", Arg.Any<bool>());
+    }
+
+    [Test]
+    public void SwitchTo_WhenPerAccountDescriptor_WritesActiveMarkerWithGranularityAndAccount()
+    {
+        // Arrange
+        const string snapshotAccountPath = @"C:\Game\Profiles\owners\ihar\account__MyAccount\Account\MyAccount";
+        var descriptor = new ProfileDescriptor
+        {
+            Id = "ihar-account",
+            Granularity = ProfileGranularity.PerAccount,
+            AccountName = "MyAccount",
+            SnapshotPath = @"C:\Game\Profiles\owners\ihar\account__MyAccount",
+        };
+        _fs.DirectoryExists(snapshotAccountPath).Returns(true);
+        _fs.GetFiles(snapshotAccountPath, "*", SearchOption.TopDirectoryOnly).Returns([]);
+        _fs.GetDirectories(snapshotAccountPath).Returns([]);
+
+        // Act
+        _sut.SwitchTo(descriptor);
+
+        // Assert
+        _fs.Received()
+            .WriteAllText(
+                @"C:\Game\Profiles\.active",
+                Arg.Is<string>(json =>
+                    IsActiveMarkerWithAccount(
+                        json,
+                        "ihar-account",
+                        ProfileGranularity.PerAccount,
+                        "MyAccount"
+                    )
+                )
+            );
+    }
+
+    [Test]
+    public void SwitchTo_WhenPerAccountSnapshotFolderMissing_Throws()
+    {
+        // Arrange
+        var descriptor = new ProfileDescriptor
+        {
+            Id = "ihar-account",
+            Granularity = ProfileGranularity.PerAccount,
+            AccountName = "MyAccount",
+            SnapshotPath = @"C:\Game\Profiles\owners\ihar\account__MyAccount",
+        };
+        // snapshot account folder does not exist (default from SetUp)
+
+        // Act & Assert
+        var ex = Should.Throw<InvalidOperationException>(() => _sut.SwitchTo(descriptor));
+        ex.Message.ShouldContain("Account snapshot folder not found");
+    }
+
+    [Test]
+    public void SwitchTo_WhenPerCharacterDescriptor_ReplacesOnlyCharacterSubtreeInWtf()
+    {
+        // Arrange
+        const string snapshotCharPath =
+            @"C:\snapshot\Account\MyAccount\Firemaw\HeroChar";
+        var descriptor = new ProfileDescriptor
+        {
+            Id = "ihar-char",
+            Granularity = ProfileGranularity.PerCharacter,
+            AccountName = "MyAccount",
+            RealmName = "Firemaw",
+            CharacterName = "HeroChar",
+            SnapshotPath = @"C:\snapshot",
+        };
+        _fs.DirectoryExists(snapshotCharPath).Returns(true);
+        _fs.GetFiles(snapshotCharPath, "*", SearchOption.TopDirectoryOnly).Returns([]);
+        _fs.GetDirectories(snapshotCharPath).Returns([]);
+        // account-level files in snapshot
+        _fs.DirectoryExists(@"C:\snapshot\Account\MyAccount").Returns(false);
+
+        // Act
+        _sut.SwitchTo(descriptor);
+
+        // Assert — only the specific character subfolder is created
+        _fs.Received().CreateDirectory(@"C:\Game\WTF\Account\MyAccount\Firemaw\HeroChar");
+        _fs.DidNotReceive().CreateDirectory(@"C:\Game\WTF");
+        _fs.DidNotReceive().DeleteDirectory(@"C:\Game\WTF", Arg.Any<bool>());
+    }
+
+    [Test]
+    public void SwitchTo_WhenPerCharacterDescriptor_RestoresAccountLevelFilesFromSnapshot()
+    {
+        // Arrange
+        const string snapshotCharPath = @"C:\snapshot\Account\MyAccount\Firemaw\HeroChar";
+        const string snapshotAccountPath = @"C:\snapshot\Account\MyAccount";
+        const string accountFile = @"C:\snapshot\Account\MyAccount\config-cache.wtf";
+        var descriptor = new ProfileDescriptor
+        {
+            Id = "ihar-char",
+            Granularity = ProfileGranularity.PerCharacter,
+            AccountName = "MyAccount",
+            RealmName = "Firemaw",
+            CharacterName = "HeroChar",
+            SnapshotPath = @"C:\snapshot",
+        };
+        _fs.DirectoryExists(snapshotCharPath).Returns(true);
+        _fs.DirectoryExists(snapshotAccountPath).Returns(true);
+        _fs.DirectoryExists(@"C:\Game\WTF\Account\MyAccount").Returns(true);
+        _fs.GetFiles(snapshotCharPath, "*", SearchOption.TopDirectoryOnly).Returns([]);
+        _fs.GetDirectories(snapshotCharPath).Returns([]);
+        _fs.GetFiles(snapshotAccountPath, "*", SearchOption.TopDirectoryOnly)
+            .Returns([accountFile]);
+
+        // Act
+        _sut.SwitchTo(descriptor);
+
+        // Assert — account-level file is copied into live account folder
+        _fs.Received()
+            .CopyFile(accountFile, @"C:\Game\WTF\Account\MyAccount\config-cache.wtf");
+    }
+
+    [Test]
+    public void SwitchTo_WhenPerCharacterDescriptor_DoesNotTouchSiblingCharacterFolders()
+    {
+        // Arrange
+        const string snapshotCharPath = @"C:\snapshot\Account\MyAccount\Firemaw\HeroChar";
+        const string siblingCharPath = @"C:\Game\WTF\Account\MyAccount\Firemaw\SiblingChar";
+        var descriptor = new ProfileDescriptor
+        {
+            Id = "ihar-char",
+            Granularity = ProfileGranularity.PerCharacter,
+            AccountName = "MyAccount",
+            RealmName = "Firemaw",
+            CharacterName = "HeroChar",
+            SnapshotPath = @"C:\snapshot",
+        };
+        _fs.DirectoryExists(snapshotCharPath).Returns(true);
+        _fs.GetFiles(snapshotCharPath, "*", SearchOption.TopDirectoryOnly).Returns([]);
+        _fs.GetDirectories(snapshotCharPath).Returns([]);
+        _fs.DirectoryExists(@"C:\snapshot\Account\MyAccount").Returns(false);
+
+        // Act
+        _sut.SwitchTo(descriptor);
+
+        // Assert — sibling character folder is never deleted or copied from
+        _fs.DidNotReceive().DeleteDirectory(siblingCharPath, Arg.Any<bool>());
+        _fs.DidNotReceive().CopyFile(Arg.Is<string>(s => s.Contains("SiblingChar")), Arg.Any<string>());
+    }
+
+    [Test]
+    public void SwitchTo_WhenPerCharacterSnapshotFolderMissing_Throws()
+    {
+        // Arrange
+        var descriptor = new ProfileDescriptor
+        {
+            Id = "ihar-char",
+            Granularity = ProfileGranularity.PerCharacter,
+            AccountName = "MyAccount",
+            RealmName = "Firemaw",
+            CharacterName = "HeroChar",
+            SnapshotPath = @"C:\snapshot",
+        };
+        // character snapshot folder does not exist (default from SetUp)
+
+        // Act & Assert
+        var ex = Should.Throw<InvalidOperationException>(() => _sut.SwitchTo(descriptor));
+        ex.Message.ShouldContain("Character snapshot folder not found");
+    }
+
+    [Test]
+    public void SaveCurrentAsProfile_WhenPerAccountDescriptor_CapturesAccountSubtreeToSnapshot()
+    {
+        // Arrange
+        const string liveAccountPath = @"C:\Game\WTF\Account\MyAccount";
+        const string snapshotAccountPath = @"C:\snapshot\Account\MyAccount";
+        var descriptor = new ProfileDescriptor
+        {
+            Id = "ihar-account",
+            Granularity = ProfileGranularity.PerAccount,
+            AccountName = "MyAccount",
+            SnapshotPath = @"C:\snapshot",
+        };
+        _fs.DirectoryExists(@"C:\Game\WTF").Returns(true);
+        _fs.DirectoryExists(liveAccountPath).Returns(true);
+        _fs.DirectoryExists(snapshotAccountPath).Returns(false);
+        _fs.GetFiles(liveAccountPath, "*", SearchOption.TopDirectoryOnly)
+            .Returns([@"C:\Game\WTF\Account\MyAccount\config-cache.wtf"]);
+        _fs.GetDirectories(liveAccountPath).Returns([]);
+
+        // Act
+        _sut.SaveCurrentAsProfile(descriptor);
+
+        // Assert — account subfolder is copied to snapshot; WTF root is not touched
+        _fs.Received().CreateDirectory(snapshotAccountPath);
+        _fs.Received()
+            .CopyFile(
+                @"C:\Game\WTF\Account\MyAccount\config-cache.wtf",
+                @"C:\snapshot\Account\MyAccount\config-cache.wtf"
+            );
+        _fs.DidNotReceive().DeleteDirectory(@"C:\Game\WTF", Arg.Any<bool>());
+    }
+
+    [Test]
+    public void SaveCurrentAsProfile_WhenPerAccountDescriptor_AccountFolderMissingInWtf_Throws()
+    {
+        // Arrange
+        var descriptor = new ProfileDescriptor
+        {
+            Id = "ihar-account",
+            Granularity = ProfileGranularity.PerAccount,
+            AccountName = "MyAccount",
+            SnapshotPath = @"C:\snapshot",
+        };
+        _fs.DirectoryExists(@"C:\Game\WTF").Returns(true);
+        // account folder does not exist (default from SetUp)
+
+        // Act & Assert
+        var ex = Should.Throw<InvalidOperationException>(
+            () => _sut.SaveCurrentAsProfile(descriptor)
+        );
+        ex.Message.ShouldContain("Account folder not found in WTF");
+    }
+
+    [Test]
+    public void SaveCurrentAsProfile_WhenPerCharacterDescriptor_CapturesCharacterFolderAndAccountFiles()
+    {
+        // Arrange
+        const string liveCharPath = @"C:\Game\WTF\Account\MyAccount\Firemaw\HeroChar";
+        const string liveAccountPath = @"C:\Game\WTF\Account\MyAccount";
+        const string accountFile = @"C:\Game\WTF\Account\MyAccount\config-cache.wtf";
+        var descriptor = new ProfileDescriptor
+        {
+            Id = "ihar-char",
+            Granularity = ProfileGranularity.PerCharacter,
+            AccountName = "MyAccount",
+            RealmName = "Firemaw",
+            CharacterName = "HeroChar",
+            SnapshotPath = @"C:\snapshot",
+        };
+        _fs.DirectoryExists(@"C:\Game\WTF").Returns(true);
+        _fs.DirectoryExists(liveCharPath).Returns(true);
+        _fs.DirectoryExists(liveAccountPath).Returns(true);
+        _fs.GetFiles(liveCharPath, "*", SearchOption.TopDirectoryOnly)
+            .Returns([@"C:\Game\WTF\Account\MyAccount\Firemaw\HeroChar\bindings-cache.wtf"]);
+        _fs.GetDirectories(liveCharPath).Returns([]);
+        _fs.GetFiles(liveAccountPath, "*", SearchOption.TopDirectoryOnly)
+            .Returns([accountFile]);
+
+        // Act
+        _sut.SaveCurrentAsProfile(descriptor);
+
+        // Assert — character folder is captured
+        _fs.Received()
+            .CopyFile(
+                @"C:\Game\WTF\Account\MyAccount\Firemaw\HeroChar\bindings-cache.wtf",
+                @"C:\snapshot\Account\MyAccount\Firemaw\HeroChar\bindings-cache.wtf"
+            );
+        // Assert — account-level files are also captured
+        _fs.Received()
+            .CopyFile(accountFile, @"C:\snapshot\Account\MyAccount\config-cache.wtf");
+        // Assert — other character folders are not deleted
+        _fs.DidNotReceive().DeleteDirectory(@"C:\Game\WTF", Arg.Any<bool>());
+        _fs.DidNotReceive().DeleteDirectory(liveAccountPath, Arg.Any<bool>());
+    }
+
+    [Test]
+    public void SaveCurrentAsProfile_WhenPerCharacterDescriptor_CharacterFolderMissingInWtf_Throws()
+    {
+        // Arrange
+        var descriptor = new ProfileDescriptor
+        {
+            Id = "ihar-char",
+            Granularity = ProfileGranularity.PerCharacter,
+            AccountName = "MyAccount",
+            RealmName = "Firemaw",
+            CharacterName = "HeroChar",
+            SnapshotPath = @"C:\snapshot",
+        };
+        _fs.DirectoryExists(@"C:\Game\WTF").Returns(true);
+        // character folder does not exist (default from SetUp)
+
+        // Act & Assert
+        var ex = Should.Throw<InvalidOperationException>(
+            () => _sut.SaveCurrentAsProfile(descriptor)
+        );
+        ex.Message.ShouldContain("Character folder not found in WTF");
     }
 }

@@ -1,162 +1,97 @@
 # HearthSwing — Copilot Instructions
 
+Use these instructions for all work in this repository. For full project context, refer to `CLAUDE.md`.
+
 ## Project Overview
 
-WPF desktop application (.NET 10, `win-x64`) for switching World of Warcraft (Classic Anniversary) settings profiles between multiple users on the same PC.
-Single-project solution with MVVM architecture: **Models → Services → ViewModels → Views**.
+- WPF desktop application targeting .NET 10 and `win-x64`.
+- Purpose: switch World of Warcraft Classic Anniversary `WTF` settings profiles between multiple users on one PC.
+- Architecture is MVVM: `Models -> Services -> ViewModels -> Views`.
 
-| Folder | Namespace | Role |
-|--------|-----------|------|
-| `Models/` | `HearthSwing.Models` | Data models: `AppSettings`, `ProfileInfo` |
-| `Services/` | `HearthSwing.Services` | Business logic: profile swapping, cache protection, process management, settings I/O |
-| `ViewModels/` | `HearthSwing.ViewModels` | MVVM view models with CommunityToolkit.Mvvm source generators |
-| Root (`*.xaml`) | `HearthSwing` | WPF views: `MainWindow.xaml`, `App.xaml` |
+## Architecture
 
-## Architecture Conventions
+- Keep responsibilities separated:
+  - `Models/` contains data-only types such as `AppSettings` and `ProfileInfo`.
+  - `Services/` contains business logic and infrastructure abstractions.
+  - `ViewModels/` contains MVVM state and commands.
+  - Root XAML files define views.
+- Register services in `MainWindow.ConfigureServices()` and use constructor injection throughout.
+- Services must depend on interfaces, not concrete implementations.
+- Keep filesystem access behind `IFileSystem` and process access behind `IProcessManager`.
+- Do not move business logic into XAML code-behind. `MainWindow.xaml.cs` is only for UI-specific behavior.
+- Preserve rollback behavior for multi-step filesystem operations such as profile switching.
 
-### MVVM (CommunityToolkit.Mvvm)
+## MVVM Conventions
 
-- ViewModel inherits `ObservableObject`. Use `[ObservableProperty]` for bindable fields and `[RelayCommand]` for commands — source generators create the public properties and `ICommand` wrappers.
-- Private backing fields follow `_camelCase` convention: `[ObservableProperty] private string _currentProfileName = "";` generates `CurrentProfileName`.
-- `ObservableCollection<T>` for list bindings.
-- View code-behind (`MainWindow.xaml.cs`) is allowed for visual-tree manipulation (button highlighting, scroll-to-end) — keep business logic out.
-- `DataContext` is set in `MainWindow` constructor via DI container; ViewModel never creates its own services with `new`.
+- ViewModels inherit `ObservableObject`.
+- Prefer `[ObservableProperty]` and `[RelayCommand]` from CommunityToolkit.Mvvm.
+- Use `_camelCase` private backing fields for generated properties.
+- Use `ObservableCollection<T>` for list bindings.
+- `DataContext` is set via DI; ViewModels must not instantiate their own services.
+- Use the WPF dispatcher for cross-thread UI updates.
 
-### Dependency Injection
+## Service Conventions
 
-- `Microsoft.Extensions.DependencyInjection` is used as the IoC container.
-- All services are registered in `MainWindow.ConfigureServices()` as singletons: `IFileSystem`, `IProcessManager`, `ISettingsService`, `IProfileManager`, `ICacheProtector`, `IProcessMonitor`, `MainViewModel`.
-- Services depend on interfaces, not concrete types (e.g., `ProfileManager` takes `ISettingsService`, not `SettingsService`).
-- `MainViewModel` depends on service interfaces (`ISettingsService`, `IProfileManager`, `ICacheProtector`, `IProcessMonitor`, `IFileSystem`) plus `Action<string, string>` for error dialogs.
+- Services are `public sealed class` types implementing interfaces such as `ISettingsService`, `IProfileManager`, `ICacheProtector`, and `IProcessMonitor`.
+- Reuse existing abstractions instead of calling `File.*`, `Directory.*`, or process APIs directly in service code.
+- `CacheProtector` owns watcher resources and should continue to follow the existing `IDisposable` pattern.
+- `ProcessMonitor` is responsible for detecting and launching `WowClassic.exe`.
+- `SettingsService` stores `AppSettings.json` beside the executable and auto-detects `GamePath`.
 
-### Service Layer
+## Domain Rules
 
-- Services are `public sealed class` implementing their respective interfaces (`ISettingsService`, `IProfileManager`, `ICacheProtector`, `IProcessMonitor`).
-- Filesystem I/O is abstracted behind `IFileSystem` (interface in `Services/`) to enable unit testing. The production implementation `FileSystem` delegates to `System.IO`. All services accept `IFileSystem` via constructor — never call `File.*` / `Directory.*` statics directly in service code.
-- Process management is abstracted behind `IProcessManager` for the same reason.
-- `ProfileManager` — discovers profiles from folder structure, swaps WTF folders, manages `.active` marker file. Implements rollback on switch failure (restores parked profile if activation fails).
-- `CacheProtector` — protects WoW cache files from server sync via read-only attributes, `FileSystemWatcher` backup/restore, and timestamp touching. Implements `IDisposable`.
-- `ProcessMonitor` — detects/launches `WowClassic.exe`, monitors process exit.
-- `SettingsService` — loads/saves `AppSettings.json` next to the executable. Auto-detects `GamePath` by walking up directories looking for `WowClassic.exe`.
+- Profile folders under `ProfilesPath` are snapshots of the WoW `WTF` folder.
+- The `.active` marker in `ProfilesPath` identifies the active profile whose folder is currently absent.
+- Profile switching flow is:
+  1. Park the current `WTF` folder into the current profile folder.
+  2. Move the target profile folder into `WTF`.
+  3. Update the `.active` marker.
+- Support same-volume move and cross-volume copy/delete behavior.
+- Clear read-only attributes before directory moves.
+- Cache protection depends on four layers working together: folder swap, read-only lock, watcher restore, and timestamp touch.
 
-### Profile System
+## C# Style
 
-- `ProfilesPath` directory contains profile subfolders. Each subfolder is a snapshot of the WoW `WTF` folder.
-- `.active` marker file (plain text) in `ProfilesPath` tracks which profile is currently active (its folder is absent because it was moved to `WTF`).
-- Switch flow: park current `WTF → Profiles/{current}`, then `Profiles/{target} → WTF`, update `.active` marker.
-- Cross-volume support: same-volume uses `Directory.Move()`, different-volume does copy + delete.
-- `ClearReadOnlyAttributes()` is called before any directory move.
+- Use file-scoped namespaces.
+- `ImplicitUsings` and nullable reference types are enabled; add only necessary non-global `using` directives.
+- Prefer collection expressions, method groups, async BCL APIs, and `string.Empty`.
+- Do not add `async` to methods that never `await`.
+- Avoid `#region` / `#endregion`.
+- Use `PascalCase` for types, constants, and XAML resource keys; use `_camelCase` for private fields.
+- Models should usually use `required` properties with `init`; use `set` only when mutation or deserialization requires it.
+- Add comments only when they explain non-obvious intent or WoW-specific behavior.
 
-### Cache Protection (4-Layer Strategy)
+## WPF and XAML
 
-1. **Folder swap** — move entire WTF directory per profile.
-2. **Read-only lock** — set `FileAttributes.ReadOnly` on all cache files matching known patterns.
-3. **FileSystemWatcher** — monitor for changes and restore from in-memory backups.
-4. **Timestamp touch** — set `LastWriteTime = DateTime.Now` so WoW prefers local files over server data.
+- Keep the existing dark theme and reuse established resource keys and button styles.
+- Continue using `BooleanToVisibilityConverter` from `App.xaml`.
+- Follow existing binding patterns, including `RelativeSource` bindings inside templates.
+- The settings overlay remains a full-grid-span `Border` controlled by `IsSettingsVisible`.
 
-Protected file patterns: `bindings-cache.wtf`, `config-cache.wtf`, `macros-cache.txt`, `edit-mode-cache-*.txt`, `tts-cache-*.txt`, `chat-cache.txt`, `chat-frontend-cache.txt`, `flagged-cache-account.txt`, `layout-local.txt`, `cache.md5`.
+## Logging and Errors
 
-## Code Style
-
-### Formatting
-
-- File-scoped namespaces: `namespace X.Y;` (one-liner, no braces).
-- `ImplicitUsings` and `Nullable` are enabled globally. Do not add `using System;` or `using System.Collections.Generic;`.
-- Explicit `using` only for non-global namespaces (`System.IO`, `System.Linq`, `System.Diagnostics`, etc.). Remove unused `using` directives.
-- Never use `#region` / `#endregion`. Prefer well-named methods and small classes for organization.
-- Prefer collection expressions (`[]`) over `Array.Empty<T>()`, `new List<T>()`, etc.
-- Prefer method groups over lambda wrappers when the signatures match: `_cacheProtector.Log += AppendLog;` not `_cacheProtector.Log += msg => AppendLog(msg);`.
-- Do not use the `async` keyword on a method that never `await`s anything. Return `Task.CompletedTask` or the inner task directly.
-- Prefer async overloads of BCL/framework methods when available (e.g., `ReadAllTextAsync`, `WriteAllTextAsync`).
-- Use `string.Empty` instead of `""` for empty string literals.
-
-### Naming
-
-- Classes: `PascalCase`. Models use `sealed class` with properties.
-- Private fields: `_camelCase` with underscore prefix.
-- Constants: `PascalCase` as `private const` or `private static readonly` inside the owning class.
-- XAML resource keys: `PascalCase` (`CardBg`, `TextPrimary`, `ProfileBtn`).
-- Event handlers: `On*` prefix in code-behind (`OnViewModelPropertyChanged`).
-
-### Access Modifiers
-
-- Services: `public sealed class`.
-- Models: `public sealed class` with `required` keyword on mandatory properties. Use `{ get; init; }` by default; use `{ get; set; }` only when the property must be mutated after construction (e.g., `AppSettings` properties bound to UI or deserialized with `System.Text.Json`).
-- ViewModel: `public partial class` (required for source generators).
-- View code-behind helpers: `private` or `private static`.
-
-### Patterns
-
-- Constructor injection with explicit field assignment (no primary constructors).
-- `sealed` on all leaf classes (services, models).
-- `event Action<string>? Log` for cross-service logging that flows to the ViewModel's `AppendLog()`.
-- `CancellationToken` for async operations. `CancellationTokenSource` managed by the ViewModel for unlock countdown and process monitoring.
-- **Fire-and-forget** via discard: `_ = RunUnlockCountdownAsync(delay, ct);` — intentional pattern for background tasks that manage their own cancellation. Do not `await` these in command methods.
-- **Dispatcher** for cross-thread UI updates: `Application.Current?.Dispatcher.Invoke(() => { ... });`. Use `Dispatcher.CheckAccess()` to detect if already on UI thread.
-- Error handling: `try/catch` with user-visible `MessageBox.Show()` for critical failures; `AppendLog()` for non-critical warnings.
-- **Rollback pattern**: `ProfileManager.SwitchTo()` attempts to restore the previous state if activation fails. New operations that modify filesystem state should follow the same try/rollback approach.
-- `IDisposable` on classes managing unmanaged resources (`CacheProtector` owns `FileSystemWatcher` instances).
-- **Threading**: `FileSystemWatcher` callbacks (`OnCacheFileChanged`) execute on a threadpool thread, not the UI thread. Keep handler logic IO-only — no UI calls inside watchers.
-
-### Comments Policy
-
-- Comments explain **"why"**, never **"how"**. If a comment describes what the next lines do, extract those lines into a well-named private method instead.
-- XML `<summary>` on public API is allowed for non-obvious contracts.
-- No step-numbering comments (`// Step 1`, `// Step 2`). Extract each step into a named method.
-- "Why" comments that explain domain-specific WoW client behaviour are valuable — keep them.
-- Remove dead/obvious comments like `// Restore the file from backup` above a `File.WriteAllBytes` call.
-
-### Logging
-
-- In-app log via `AppendLog()` in `MainViewModel`. Format: `[HH:mm:ss] message\n`.
-- Services use `event Action<string>? Log` — ViewModel subscribes in constructor via method group: `_cacheProtector.Log += AppendLog;`.
-- Use plain message strings (no structured logging). Prefix errors with `"ERROR: "`, warnings with `"Warning: "`.
-
-### JSON Serialization
-
-- `System.Text.Json` only (no Newtonsoft).
-- `JsonSerializerOptions` with `WriteIndented = true` and `PropertyNameCaseInsensitive = true` for settings file.
-
-### WPF / XAML
-
-- Dark theme: background `#1a1a2e`, panel `#16213e`, card `#0f3460`.
-- Named `SolidColorBrush` resources in `Window.Resources`.
-- Custom button styles (`ProfileBtn`, `ActionBtn`, `LinkBtn`) with `ControlTemplate` and triggers.
-- `ItemsControl` with `WrapPanel` for dynamic profile buttons.
-- `BooleanToVisibilityConverter` declared in `App.xaml` as `BoolToVis`.
-- Icon via `pack://application:,,,/app.ico` with `<Resource Include="app.ico" />` in csproj (required for single-file publish).
-- **Settings overlay**: full-grid-span `Border` with semi-transparent background (`#ee1a1a2e`) and `Visibility` bound to `IsSettingsVisible`. Toggled via `LinkBtn`.
-- Bindings: `{Binding PropertyName}`, commands: `{Binding CommandName}`, relative source for nested templates: `{Binding DataContext.Command, RelativeSource={RelativeSource AncestorType=Window}}`.
+- Services should surface log messages through `event Action<string>? Log`.
+- The ViewModel log format is `[HH:mm:ss] message\n`.
+- Prefix warnings with `Warning:` and errors with `ERROR:`.
+- Surface critical failures using the existing user-visible dialog pattern. Do not silently swallow errors.
 
 ## Testing
 
-- **NUnit** as test framework. `[Test]` for single-case tests, `[TestCase]` for parameterized.
-- **AutoFixture** + **AutoNSubstitute** for automatic mocking and test data generation.
-- **NSubstitute** for mocking (`Substitute.For<T>()`, `Arg.Any<T>()`, `.Returns()`, `.Throws()`).
-- **Shouldly** for assertions (`result.ShouldBe(expected)`, `action.ShouldThrow<T>()`).
-- **Arrange / Act / Assert** pattern with explicit `// Arrange`, `// Act`, `// Assert` comments.
-- `GlobalFixture` (NUnit `[SetUpFixture]`) provides shared setup for the test assembly.
-- Test project structure mirrors the source project folders (`Services/`, `ViewModels/`, `Models/`).
-- Test classes: `{ClassUnderTest}Tests` (e.g., `ProfileManagerTests`, `CacheProtectorTests`).
-- Mocks are created with `_fixture.Freeze<T>()` — frozen in `[SetUp]`, arranged in test methods.
-- SUT (System Under Test) is constructed in `[SetUp]` with all dependencies injected.
-- `IFileSystem` and `IProcessManager` are substituted via NSubstitute in tests — no real filesystem I/O in unit tests.
-- `MessageBox.Show()` is never called from ViewModel directly. UI dialogs are abstracted behind an `Action` delegate or `IMessageDialog` interface so the ViewModel is fully testable.
+- Test project structure should mirror the source structure.
+- Use NUnit, AutoFixture with AutoNSubstitute, NSubstitute, and Shouldly.
+- Follow Arrange / Act / Assert with explicit section comments.
+- Freeze mocks during setup and construct the SUT with injected dependencies.
+- Keep unit tests isolated from the real filesystem and process APIs.
 
-## Build & Publish
+## Build and Publish
 
-- Solution file: `HearthSwing.slnx`
 - Build: `dotnet build HearthSwing.slnx -c Release`
 - Test: `dotnet test HearthSwing.slnx -c Release`
-- Publish: `dotnet publish HearthSwing/HearthSwing.csproj -c Release` (produces single-file self-contained exe, ~140 MB).
-- Target: `net10.0-windows`, `win-x64`, `PublishSingleFile=true`, `SelfContained=true`, `IncludeNativeLibrariesForSelfExtract=true`.
+- Publish: `dotnet publish HearthSwing\HearthSwing.csproj -c Release`
 
-## Adding New Functionality
+## When Adding Features
 
-When adding a new feature:
-
-1. **Model**: Create `sealed class` in `Models/` with `required` properties. Keep models logic-free.
-2. **Service**: Create `sealed class` in `Services/`. Expose `event Action<string>? Log` if it needs to report activity. Wire it up in `MainViewModel` constructor.
-3. **ViewModel**: Add `[ObservableProperty]` fields and `[RelayCommand]` methods in `MainViewModel`. For complex features, consider a separate ViewModel.
-4. **View**: Bind new properties/commands in `MainWindow.xaml`. Follow existing dark-theme style keys.
-5. **Tests**: Create matching test file in the test project. Use `NUnit`, `AutoFixture`, `NSubstitute`, `Shouldly`, and AAA pattern.
+1. Add or update the relevant model, service, ViewModel, view, and tests.
+2. Keep models logic-free.
+3. Wire new services through DI and subscribe logs in `MainViewModel` when needed.
+4. Follow existing XAML styling and binding conventions instead of introducing parallel patterns.
