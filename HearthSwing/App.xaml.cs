@@ -2,6 +2,7 @@ using System.Windows;
 using HearthSwing.Services;
 using HearthSwing.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace HearthSwing;
 
@@ -27,8 +28,14 @@ public partial class App : Application
 
     private static void ConfigureServices(IServiceCollection services)
     {
-        services.AddSingleton<AppLogger>();
-        services.AddSingleton<IAppLogger>(sp => sp.GetRequiredService<AppLogger>());
+        var logSink = new UiLogSink();
+        services.AddSingleton<IUiLogSink>(logSink);
+        services.AddLogging(builder =>
+        {
+            builder.SetMinimumLevel(LogLevel.Information);
+            builder.AddProvider(new UiLoggerProvider(logSink));
+        });
+
         services.AddSingleton<IFileSystem, FileSystem>();
         services.AddSingleton<IProcessManager, SystemProcessManager>();
         services.AddSingleton<ISettingsService, SettingsService>();

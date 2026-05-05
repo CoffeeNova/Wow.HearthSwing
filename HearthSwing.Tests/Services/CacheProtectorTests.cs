@@ -1,6 +1,7 @@
 using AutoFixture;
 using AutoFixture.AutoNSubstitute;
 using HearthSwing.Services;
+using Microsoft.Extensions.Logging;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
@@ -12,7 +13,7 @@ public class CacheProtectorTests
 {
     private IFixture _fixture = null!;
     private IFileSystem _fs = null!;
-    private IAppLogger _logger = null!;
+    private CapturingLogger<CacheProtector> _logger = null!;
     private CacheProtector _sut = null!;
 
     [SetUp]
@@ -20,7 +21,7 @@ public class CacheProtectorTests
     {
         _fixture = new Fixture().Customize(new AutoNSubstituteCustomization());
         _fs = _fixture.Freeze<IFileSystem>();
-        _logger = _fixture.Freeze<IAppLogger>();
+        _logger = new CapturingLogger<CacheProtector>();
 
         _fs.FileExists(Arg.Any<string>()).Returns(false);
         _fs.DirectoryExists(Arg.Any<string>()).Returns(false);
@@ -180,7 +181,7 @@ public class CacheProtectorTests
         _sut.Lock(wtfPath);
 
         // Assert
-        _logger.Received().Log(Arg.Is<string>(m => m.Contains("Warning") && m.Contains("locked")));
+        _logger.HasWarning(m => m.Contains("Could not back up") && m.Contains("locked")).ShouldBeTrue();
         _sut.ProtectedFileCount.ShouldBe(1);
     }
 
@@ -196,8 +197,7 @@ public class CacheProtectorTests
 
         // Assert
         _logger
-            .Received()
-            .Log(Arg.Is<string>(m => m.Contains("Locked") && m.Contains("cache files")));
+            .HasInformation(m => m.Contains("Locked") && m.Contains("cache files")).ShouldBeTrue();
     }
 
     [Test]
@@ -262,13 +262,11 @@ public class CacheProtectorTests
         var wtfPath = @"C:\Game\WTF";
         _fs.DirectoryExists(wtfPath).Returns(true);
         _sut.Lock(wtfPath);
-        _logger.ClearReceivedCalls();
-
         // Act
         _sut.Unlock();
 
         // Assert
-        _logger.Received().Log(Arg.Is<string>(m => m.Contains("unlocked")));
+        _logger.HasInformation(m => m.Contains("unlocked")).ShouldBeTrue();
     }
 
     [Test]
@@ -286,8 +284,7 @@ public class CacheProtectorTests
 
         // Assert
         _logger
-            .Received()
-            .Log(Arg.Is<string>(m => m.Contains("Snapshot") && m.Contains("1 files")));
+            .HasInformation(m => m.Contains("Snapshot") && m.Contains("1 files")).ShouldBeTrue();
         _sut.ProtectedFileCount.ShouldBe(1);
     }
 
@@ -311,8 +308,6 @@ public class CacheProtectorTests
         _fs.GetAttributes(cacheFile).Returns(FileAttributes.ReadOnly);
         _fs.DirectoryExists(wtfPath).Returns(true);
 
-        _logger.ClearReceivedCalls();
-
         // Act
         _sut.ForceRestore(wtfPath);
 
@@ -321,8 +316,7 @@ public class CacheProtectorTests
         _fs.Received().SetLastWriteTime(cacheFile, Arg.Any<DateTime>());
         _sut.IsLocked.ShouldBeTrue();
         _logger
-            .Received()
-            .Log(Arg.Is<string>(m => m.Contains("Force-restored") && m.Contains("/reload")));
+            .HasInformation(m => m.Contains("Force-restored") && m.Contains("/reload")).ShouldBeTrue();
     }
 
     [Test]
@@ -352,15 +346,12 @@ public class CacheProtectorTests
             )
             .Do(_ => throw new IOException("locked by process"));
 
-        _logger.ClearReceivedCalls();
-
         // Act
         _sut.ForceRestore(wtfPath);
 
         // Assert
         _logger
-            .Received()
-            .Log(Arg.Is<string>(m => m.Contains("Warning") && m.Contains("could not restore")));
+            .HasWarning(m => m.Contains("Could not restore")).ShouldBeTrue();
     }
 
     [Test]

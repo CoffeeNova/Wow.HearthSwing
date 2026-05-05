@@ -1,4 +1,5 @@
 using System.IO;
+using Microsoft.Extensions.Logging;
 
 namespace HearthSwing.Services;
 
@@ -21,13 +22,13 @@ public sealed class CacheProtector : ICacheProtector
     ];
 
     private readonly IFileSystem _fs;
-    private readonly IAppLogger _logger;
+    private readonly ILogger<CacheProtector> _logger;
     private readonly Dictionary<string, byte[]> _backups = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<FileSystemWatcher> _watchers = [];
     private bool _locked;
     private bool _disposed;
 
-    public CacheProtector(IFileSystem fileSystem, IAppLogger logger)
+    public CacheProtector(IFileSystem fileSystem, ILogger<CacheProtector> logger)
     {
         _fs = fileSystem;
         _logger = logger;
@@ -73,7 +74,7 @@ public sealed class CacheProtector : ICacheProtector
         TouchOldCompanions(wtfPath, now);
         StartWatchers(wtfPath);
         _locked = true;
-        _logger.Log($"Locked {_backups.Count} cache files (read-only + timestamps touched).");
+        _logger.LogInformation("Locked {Count} cache files (read-only + timestamps touched).", _backups.Count);
     }
 
     public void Unlock()
@@ -85,7 +86,7 @@ public sealed class CacheProtector : ICacheProtector
         RemoveReadOnlyFromBackups();
         _backups.Clear();
         _locked = false;
-        _logger.Log("Cache files unlocked.");
+        _logger.LogInformation("Cache files unlocked.");
     }
 
     /// <summary>
@@ -107,8 +108,9 @@ public sealed class CacheProtector : ICacheProtector
         StartWatchers(wtfPath);
         _locked = true;
 
-        _logger.Log(
-            $"Force-restored {restored} cache files with fresh timestamps. Type /reload in WoW."
+        _logger.LogInformation(
+            "Force-restored {Count} cache files with fresh timestamps. Type /reload in WoW.",
+            restored
         );
     }
 
@@ -134,7 +136,7 @@ public sealed class CacheProtector : ICacheProtector
             }
             catch (Exception ex)
             {
-                _logger.Log($"Warning: could not back up {Path.GetFileName(file)}: {ex.Message}");
+                _logger.LogWarning("Could not back up {FileName}: {Error}", Path.GetFileName(file), ex.Message);
             }
         }
     }
@@ -167,7 +169,7 @@ public sealed class CacheProtector : ICacheProtector
             { /* skip */
             }
         }
-        _logger.Log($"Snapshot: {_backups.Count} files captured for restore.");
+        _logger.LogInformation("Snapshot: {Count} files captured for restore.", _backups.Count);
     }
 
     private int RestoreAllFromBackups(DateTime now)
@@ -185,7 +187,7 @@ public sealed class CacheProtector : ICacheProtector
             }
             catch (Exception ex)
             {
-                _logger.Log($"Warning: could not restore {Path.GetFileName(file)}: {ex.Message}");
+                _logger.LogWarning("Could not restore {FileName}: {Error}", Path.GetFileName(file), ex.Message);
             }
         }
         return restored;
@@ -215,7 +217,7 @@ public sealed class CacheProtector : ICacheProtector
             }
             catch (Exception ex)
             {
-                _logger.Log($"Warning: could not create watcher for {dir}: {ex.Message}");
+                _logger.LogWarning("Could not create watcher for {Directory}: {Error}", dir, ex.Message);
             }
         }
     }
@@ -242,13 +244,14 @@ public sealed class CacheProtector : ICacheProtector
             SetReadOnly(e.FullPath, false);
             _fs.WriteAllBytes(e.FullPath, backup);
             SetReadOnly(e.FullPath, true);
-            _logger.Log(
-                $"Restored {Path.GetFileName(e.FullPath)} from backup (sync attempt blocked)."
+            _logger.LogInformation(
+                "Restored {FileName} from backup (sync attempt blocked).",
+                Path.GetFileName(e.FullPath)
             );
         }
         catch (Exception ex)
         {
-            _logger.Log($"Warning: could not restore {Path.GetFileName(e.FullPath)}: {ex.Message}");
+            _logger.LogWarning("Could not restore {FileName}: {Error}", Path.GetFileName(e.FullPath), ex.Message);
         }
     }
 

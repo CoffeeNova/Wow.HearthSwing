@@ -19,9 +19,9 @@ public class MainViewModelTests
     private IFileSystem _fileSystem = null!;
     private IUpdateService _updateService = null!;
     private IProfileVersionService _versionService = null!;
-    private AppLogger _logger = null!;
     private IDialogService _dialogService = null!;
     private IUiDispatcher _uiDispatcher = null!;
+    private IUiLogSink _logSink = null!;
 
     [SetUp]
     public void SetUp()
@@ -34,9 +34,9 @@ public class MainViewModelTests
         _fileSystem = _fixture.Freeze<IFileSystem>();
         _updateService = _fixture.Freeze<IUpdateService>();
         _versionService = _fixture.Freeze<IProfileVersionService>();
-        _logger = new AppLogger();
         _dialogService = _fixture.Freeze<IDialogService>();
         _uiDispatcher = _fixture.Freeze<IUiDispatcher>();
+        _logSink = _fixture.Freeze<IUiLogSink>();
 
         _settingsService.Current.Returns(new AppSettings());
         _profileManager.DiscoverProfiles().Returns([]);
@@ -59,9 +59,9 @@ public class MainViewModelTests
             _fileSystem,
             _updateService,
             _versionService,
-            _logger,
             _dialogService,
-            _uiDispatcher
+            _uiDispatcher,
+            _logSink
         );
 
     [Test]

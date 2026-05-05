@@ -19,6 +19,7 @@ public partial class MainViewModel : ObservableObject
     private readonly IProfileVersionService _versionService;
     private readonly IDialogService _dialogService;
     private readonly IUiDispatcher _uiDispatcher;
+    private readonly IUiLogSink _logSink;
     private CancellationTokenSource? _unlockCts;
     private CancellationTokenSource? _monitorCts;
     private TaskCompletionSource<bool>? _savePromptTcs;
@@ -129,9 +130,9 @@ public partial class MainViewModel : ObservableObject
         IFileSystem fileSystem,
         IUpdateService updateService,
         IProfileVersionService versionService,
-        AppLogger logger,
         IDialogService dialogService,
-        IUiDispatcher uiDispatcher
+        IUiDispatcher uiDispatcher,
+        IUiLogSink logSink
     )
     {
         _settingsService = settingsService;
@@ -143,8 +144,9 @@ public partial class MainViewModel : ObservableObject
         _versionService = versionService;
         _dialogService = dialogService;
         _uiDispatcher = uiDispatcher;
+        _logSink = logSink;
 
-        logger.SetSink(AppendLog);
+        _logSink.MessageLogged += OnLogMessage;
 
         GamePath = settingsService.Current.GamePath;
         ProfilesPath = settingsService.Current.ProfilesPath;
@@ -760,6 +762,8 @@ public partial class MainViewModel : ObservableObject
             return _archiveDoneTcs.Task;
         }
     }
+
+    private void OnLogMessage(string message) => AppendLog(message);
 
     private void AppendLog(string message)
     {
