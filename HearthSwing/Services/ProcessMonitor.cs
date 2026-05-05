@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using Microsoft.Extensions.Logging;
 
 namespace HearthSwing.Services;
 
@@ -9,9 +10,9 @@ public sealed class ProcessMonitor : IProcessMonitor
     private const string WowExeName = "WowClassic.exe";
     private readonly IProcessManager _processManager;
     private readonly IFileSystem _fs;
-    private readonly IAppLogger _logger;
+    private readonly ILogger<ProcessMonitor> _logger;
 
-    public ProcessMonitor(IProcessManager processManager, IFileSystem fileSystem, IAppLogger logger)
+    public ProcessMonitor(IProcessManager processManager, IFileSystem fileSystem, ILogger<ProcessMonitor> logger)
     {
         _processManager = processManager;
         _fs = fileSystem;
@@ -29,7 +30,7 @@ public sealed class ProcessMonitor : IProcessMonitor
         if (!_fs.FileExists(exePath))
             throw new FileNotFoundException($"WoW executable not found: {exePath}");
 
-        _logger.Log($"Launching {WowExeName}...");
+        _logger.LogInformation("Launching {ExeName}...", WowExeName);
         _processManager.Start(
             new ProcessStartInfo
             {

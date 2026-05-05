@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Windows;
 using HearthSwing.Models;
+using Microsoft.Extensions.Logging;
 
 namespace HearthSwing.Services;
 
@@ -15,9 +16,9 @@ public sealed class UpdateService : IUpdateService
 
     private static readonly HttpClient Http = CreateHttpClient();
 
-    private readonly IAppLogger _logger;
+    private readonly ILogger<UpdateService> _logger;
 
-    public UpdateService(IAppLogger logger)
+    public UpdateService(ILogger<UpdateService> logger)
     {
         _logger = logger;
     }
@@ -67,9 +68,9 @@ public sealed class UpdateService : IUpdateService
 
         try
         {
-            _logger.Log($"Downloading HearthSwing {update.Version}...");
+            _logger.LogInformation("Downloading HearthSwing {Version}...", update.Version);
             await DownloadFileAsync(update.DownloadUrl, tempZip, ct);
-            _logger.Log("Download complete. Extracting...");
+            _logger.LogInformation("Download complete. Extracting...");
 
             if (Directory.Exists(tempExtract))
                 Directory.Delete(tempExtract, recursive: true);
@@ -79,7 +80,7 @@ public sealed class UpdateService : IUpdateService
             RenameCurrentFiles(appDir);
             CopyNewFiles(tempExtract, appDir);
 
-            _logger.Log("Update applied. Restarting...");
+            _logger.LogInformation("Update applied. Restarting...");
 
             var exePath = Path.Combine(appDir, "HearthSwing.exe");
             Process.Start(new ProcessStartInfo { FileName = exePath, UseShellExecute = true });
@@ -144,7 +145,7 @@ public sealed class UpdateService : IUpdateService
             if (File.Exists(oldPath))
                 File.Delete(oldPath);
             File.Move(exePath, oldPath);
-            _logger.Log("Renamed current exe to HearthSwing.exe.old");
+            _logger.LogInformation("Renamed current exe to HearthSwing.exe.old");
         }
     }
 

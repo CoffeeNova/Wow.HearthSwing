@@ -2,6 +2,7 @@ using System.Diagnostics;
 using AutoFixture;
 using AutoFixture.AutoNSubstitute;
 using HearthSwing.Services;
+using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Shouldly;
 
@@ -13,7 +14,7 @@ public class ProcessMonitorTests
     private IFixture _fixture = null!;
     private IProcessManager _processManager = null!;
     private IFileSystem _fs = null!;
-    private IAppLogger _logger = null!;
+    private CapturingLogger<ProcessMonitor> _logger = null!;
     private ProcessMonitor _sut = null!;
 
     [SetUp]
@@ -22,7 +23,7 @@ public class ProcessMonitorTests
         _fixture = new Fixture().Customize(new AutoNSubstituteCustomization());
         _processManager = _fixture.Freeze<IProcessManager>();
         _fs = _fixture.Freeze<IFileSystem>();
-        _logger = _fixture.Freeze<IAppLogger>();
+        _logger = new CapturingLogger<ProcessMonitor>();
 
         _processManager.GetProcessesByName(Arg.Any<string>()).Returns([]);
 
@@ -94,7 +95,7 @@ public class ProcessMonitorTests
         _sut.LaunchWow(@"C:\Game");
 
         // Assert
-        _logger.Received().Log(Arg.Is<string>(m => m.Contains("Launching")));
+        _logger.HasInformation(m => m.Contains("Launching")).ShouldBeTrue();
     }
 
     [Test]

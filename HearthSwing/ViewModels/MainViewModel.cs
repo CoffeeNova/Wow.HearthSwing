@@ -1,7 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Reflection;
-using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HearthSwing.Models;
@@ -18,8 +17,9 @@ public partial class MainViewModel : ObservableObject
     private readonly IFileSystem _fs;
     private readonly IUpdateService _updateService;
     private readonly IProfileVersionService _versionService;
-    private readonly Action<string, string> _showError;
-    private readonly Func<string, string, bool> _showConfirm;
+    private readonly IDialogService _dialogService;
+    private readonly IUiDispatcher _uiDispatcher;
+    private readonly IUiLogSink _logSink;
     private CancellationTokenSource? _unlockCts;
     private CancellationTokenSource? _monitorCts;
     private TaskCompletionSource<bool>? _savePromptTcs;
@@ -130,9 +130,9 @@ public partial class MainViewModel : ObservableObject
         IFileSystem fileSystem,
         IUpdateService updateService,
         IProfileVersionService versionService,
-        AppLogger logger,
-        Action<string, string> showError,
-        Func<string, string, bool> showConfirm
+        IDialogService dialogService,
+        IUiDispatcher uiDispatcher,
+        IUiLogSink logSink
     )
     {
         _settingsService = settingsService;
@@ -142,10 +142,11 @@ public partial class MainViewModel : ObservableObject
         _fs = fileSystem;
         _updateService = updateService;
         _versionService = versionService;
-        _showError = showError;
-        _showConfirm = showConfirm;
+        _dialogService = dialogService;
+        _uiDispatcher = uiDispatcher;
+        _logSink = logSink;
 
-        logger.SetSink(AppendLog);
+        _logSink.MessageLogged += OnLogMessage;
 
         GamePath = settingsService.Current.GamePath;
         ProfilesPath = settingsService.Current.ProfilesPath;
@@ -193,7 +194,7 @@ public partial class MainViewModel : ObservableObject
         try
         {
             UnlockCacheIfNeeded();
-            _profileManager.SwitchTo(target, AppendLog);
+            _profileManager.SwitchTo(target);
             RefreshState();
             StatusText = $"Active: {CurrentProfileName}";
         }
@@ -201,7 +202,7 @@ public partial class MainViewModel : ObservableObject
         {
             AppendLog($"ERROR: {ex.Message}");
             StatusText = "Switch failed!";
-            _showError(ex.Message, "Switch Error");
+            _dialogService.ShowWarning(ex.Message, "Switch Error");
         }
         finally
         {
@@ -354,7 +355,7 @@ public partial class MainViewModel : ObservableObject
         try
         {
             UnlockCacheIfNeeded();
-            _profileManager.RestoreActiveProfile(AppendLog);
+            _profileManager.RestoreActiveProfile();
             RefreshState();
             StatusText = $"Profile restored: {CurrentProfileName}";
         }
@@ -362,7 +363,7 @@ public partial class MainViewModel : ObservableObject
         {
             AppendLog($"ERROR: {ex.Message}");
             StatusText = "Restore failed!";
-            _showError(ex.Message, "Restore Error");
+            _dialogService.ShowWarning(ex.Message, "Restore Error");
         }
         finally
         {
@@ -412,7 +413,7 @@ public partial class MainViewModel : ObservableObject
             AppendLog($"New version available: {result.Version} (current: {AppVersion}).");
 
             if (
-                !_showConfirm(
+                !_dialogService.Confirm(
                     $"Version {result.Version} is available.\nUpdate now?",
                     "Update Available"
                 )
@@ -476,7 +477,7 @@ public partial class MainViewModel : ObservableObject
             return false;
 
         AppendLog($"ERROR: WoW is running. {reason}");
-        _showError($"WoW is currently running!\n{reason}", "HearthSwing");
+        _dialogService.ShowWarning($"WoW is currently running!\n{reason}", "HearthSwing");
         return true;
     }
 
@@ -541,7 +542,7 @@ public partial class MainViewModel : ObservableObject
 
             if (!ct.IsCancellationRequested)
             {
-                Application.Current?.Dispatcher.Invoke(() =>
+                _uiDispatcher.Invoke(() =>
                 {
                     _cacheProtector.Unlock();
                     IsCacheLocked = false;
@@ -563,7 +564,7 @@ public partial class MainViewModel : ObservableObject
             // WoW may still be flushing writes after the process exits
             await Task.Delay(2000, ct);
 
-            Application.Current?.Dispatcher.Invoke(() =>
+            _uiDispatcher.Invoke(() =>
             {
                 IsWowRunning = false;
                 UnlockCacheIfNeeded();
@@ -591,7 +592,7 @@ public partial class MainViewModel : ObservableObject
         if (AutoSaveOnExit)
         {
             await SaveActiveProfileWithVersioningAsync(profileId);
-            Application.Current?.Dispatcher.Invoke(() =>
+            _uiDispatcher.Invoke(() =>
             {
                 RefreshState();
                 StatusText = $"Profile '{profileId}' auto-saved.";
@@ -603,7 +604,7 @@ public partial class MainViewModel : ObservableObject
             TaskCreationOptions.RunContinuationsAsynchronously
         );
         _savePromptTcs = tcs;
-        Application.Current?.Dispatcher.Invoke(() =>
+        _uiDispatcher.Invoke(() =>
         {
             SavePromptProfileName = profileId;
             IsSavePromptVisible = true;
@@ -613,7 +614,7 @@ public partial class MainViewModel : ObservableObject
         if (accepted)
         {
             await SaveActiveProfileWithVersioningAsync(profileId);
-            Application.Current?.Dispatcher.Invoke(() =>
+            _uiDispatcher.Invoke(() =>
             {
                 RefreshState();
                 StatusText = $"Profile '{profileId}' saved.";
@@ -709,7 +710,7 @@ public partial class MainViewModel : ObservableObject
         if (VersioningEnabled && _fs.DirectoryExists(profilePath))
             await RunTrackedArchiveAsync(_versionService.CreateVersionAsync(profileId));
 
-        _profileManager.SaveCurrentAsProfile(profileId, AppendLog);
+        _profileManager.SaveCurrentAsProfile(profileId);
     }
 
     private async Task RunTrackedArchiveAsync(Task archiveTask)
@@ -762,18 +763,12 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
+    private void OnLogMessage(string message) => AppendLog(message);
+
     private void AppendLog(string message)
     {
         var timestamp = DateTime.Now.ToString("HH:mm:ss");
         var line = $"[{timestamp}] {message}\n";
-
-        if (Application.Current?.Dispatcher.CheckAccess() == false)
-        {
-            Application.Current.Dispatcher.Invoke(() => LogText += line);
-        }
-        else
-        {
-            LogText += line;
-        }
+        _uiDispatcher.Invoke(() => LogText += line);
     }
 }

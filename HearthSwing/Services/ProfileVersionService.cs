@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.IO;
 using HearthSwing.Models;
+using Microsoft.Extensions.Logging;
 
 namespace HearthSwing.Services;
 
@@ -11,13 +12,13 @@ public sealed class ProfileVersionService : IProfileVersionService
     private const string ArchiveExtension = ".tar.gz";
     private readonly IFileSystem _fs;
     private readonly ISettingsService _settings;
-    private readonly IAppLogger _logger;
+    private readonly ILogger<ProfileVersionService> _logger;
     private readonly IArchiveService _archive;
 
     public ProfileVersionService(
         IFileSystem fileSystem,
         ISettingsService settings,
-        IAppLogger logger,
+        ILogger<ProfileVersionService> logger,
         IArchiveService archive
     )
     {
@@ -34,7 +35,7 @@ public sealed class ProfileVersionService : IProfileVersionService
         var profilePath = Path.Combine(_settings.Current.ProfilesPath, profileId);
         if (!_fs.DirectoryExists(profilePath))
         {
-            _logger.Log($"Warning: profile folder '{profileId}' not found — skipping version.");
+            _logger.LogWarning("Profile folder '{ProfileId}' not found — skipping version.", profileId);
             return;
         }
 
@@ -44,7 +45,7 @@ public sealed class ProfileVersionService : IProfileVersionService
 
         var archivePath = Path.Combine(profileVersionsDir, versionId + ArchiveExtension);
         await _archive.CompressDirectoryAsync(profilePath, archivePath);
-        _logger.Log($"Version '{versionId}' created for profile '{profileId}'.");
+        _logger.LogInformation("Version '{VersionId}' created for profile '{ProfileId}'.", versionId, profileId);
 
         PruneVersions(profileId, _settings.Current.MaxVersionsPerProfile);
     }
@@ -103,7 +104,7 @@ public sealed class ProfileVersionService : IProfileVersionService
 
         _fs.CreateDirectory(profilePath);
         await _archive.ExtractToDirectoryAsync(version.ArchivePath, profilePath);
-        _logger.Log($"Profile '{version.ProfileId}' restored from version '{version.VersionId}'.");
+        _logger.LogInformation("Profile '{ProfileId}' restored from version '{VersionId}'.", version.ProfileId, version.VersionId);
     }
 
     public void DeleteVersion(ProfileVersion version)
@@ -112,7 +113,7 @@ public sealed class ProfileVersionService : IProfileVersionService
             return;
 
         _fs.DeleteFile(version.ArchivePath);
-        _logger.Log($"Version '{version.VersionId}' deleted for profile '{version.ProfileId}'.");
+        _logger.LogInformation("Version '{VersionId}' deleted for profile '{ProfileId}'.", version.VersionId, version.ProfileId);
     }
 
     public void PruneVersions(string profileId, int maxVersions)
@@ -128,7 +129,7 @@ public sealed class ProfileVersionService : IProfileVersionService
                 _fs.DeleteFile(version.ArchivePath);
         }
 
-        _logger.Log($"Pruned {toDelete.Count} old version(s) for profile '{profileId}'.");
+        _logger.LogInformation("Pruned {Count} old version(s) for profile '{ProfileId}'.", toDelete.Count, profileId);
     }
 
     private void ClearReadOnlyAttributes(string directory)

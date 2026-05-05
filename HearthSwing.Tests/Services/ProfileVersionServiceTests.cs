@@ -2,6 +2,7 @@ using AutoFixture;
 using AutoFixture.AutoNSubstitute;
 using HearthSwing.Models;
 using HearthSwing.Services;
+using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Shouldly;
 
@@ -13,7 +14,7 @@ public class ProfileVersionServiceTests
     private IFixture _fixture = null!;
     private IFileSystem _fs = null!;
     private ISettingsService _settings = null!;
-    private IAppLogger _logger = null!;
+    private CapturingLogger<ProfileVersionService> _logger = null!;
     private IArchiveService _archive = null!;
     private ProfileVersionService _sut = null!;
 
@@ -33,7 +34,7 @@ public class ProfileVersionServiceTests
             new AppSettings { ProfilesPath = @"C:\Profiles", MaxVersionsPerProfile = 5 }
         );
 
-        _logger = _fixture.Freeze<IAppLogger>();
+        _logger = new CapturingLogger<ProfileVersionService>();
         _archive = _fixture.Freeze<IArchiveService>();
 
         _sut = new ProfileVersionService(_fs, _settings, _logger, _archive);
@@ -49,7 +50,7 @@ public class ProfileVersionServiceTests
         await _sut.CreateVersionAsync("Alice");
 
         // Assert
-        _logger.Received().Log(Arg.Is<string>(m => m.Contains("not found")));
+        _logger.HasWarning(m => m.Contains("not found")).ShouldBeTrue();
         await _archive
             .DidNotReceive()
             .CompressDirectoryAsync(
@@ -80,7 +81,7 @@ public class ProfileVersionServiceTests
                 ),
                 Arg.Any<CancellationToken>()
             );
-        _logger.Received().Log(Arg.Is<string>(m => m.Contains("Version") && m.Contains("created")));
+        _logger.HasInformation(m => m.Contains("Version") && m.Contains("created")).ShouldBeTrue();
     }
 
     [Test]
@@ -165,7 +166,7 @@ public class ProfileVersionServiceTests
                 @"C:\Profiles\Alice",
                 Arg.Any<CancellationToken>()
             );
-        _logger.Received().Log(Arg.Is<string>(m => m.Contains("restored")));
+        _logger.HasInformation(m => m.Contains("restored")).ShouldBeTrue();
     }
 
     [Test]
@@ -187,7 +188,7 @@ public class ProfileVersionServiceTests
 
         // Assert
         _fs.Received().DeleteFile(@"C:\Profiles\.versions\Alice\20260115_120000.tar.gz");
-        _logger.Received().Log(Arg.Is<string>(m => m.Contains("deleted")));
+        _logger.HasInformation(m => m.Contains("deleted")).ShouldBeTrue();
     }
 
     [Test]
