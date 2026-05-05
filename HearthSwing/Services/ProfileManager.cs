@@ -1,5 +1,6 @@
 using System.IO;
 using HearthSwing.Models;
+using Microsoft.Extensions.Logging;
 
 namespace HearthSwing.Services;
 
@@ -9,11 +10,17 @@ public sealed class ProfileManager : IProfileManager
     private const string ActiveMarker = ".active";
     private readonly ISettingsService _settings;
     private readonly IFileSystem _fs;
+    private readonly ILogger<ProfileManager> _logger;
 
-    public ProfileManager(ISettingsService settings, IFileSystem fileSystem)
+    public ProfileManager(
+        ISettingsService settings,
+        IFileSystem fileSystem,
+        ILogger<ProfileManager> logger
+    )
     {
         _settings = settings;
         _fs = fileSystem;
+        _logger = logger;
     }
 
     public string GamePath => _settings.Current.GamePath;
@@ -63,7 +70,7 @@ public sealed class ProfileManager : IProfileManager
         };
     }
 
-    public void SwitchTo(ProfileInfo target, Action<string> log)
+    public void SwitchTo(ProfileInfo target)
     {
         var currentProfile = DetectCurrentProfile();
         var wtfActive = Path.Combine(GamePath, WtfFolderName);
@@ -73,7 +80,7 @@ public sealed class ProfileManager : IProfileManager
             && currentProfile.Id.Equals(target.Id, StringComparison.OrdinalIgnoreCase)
         )
         {
-            log($"'{target.DisplayName}' is already active.");
+            _logger.LogInformation("'{DisplayName}' is already active.", target.DisplayName);
             return;
         }
 
@@ -83,19 +90,23 @@ public sealed class ProfileManager : IProfileManager
 
         if (_fs.DirectoryExists(wtfActive))
         {
-            log($"Removing current WTF...");
+            _logger.LogInformation("Removing current WTF...");
             ClearReadOnlyAttributes(wtfActive);
             _fs.DeleteDirectory(wtfActive, recursive: true);
         }
 
-        log($"Activating '{target.DisplayName}': {target.Id}/ → WTF");
+        _logger.LogInformation(
+            "Activating '{DisplayName}': {ProfileId}/ → WTF",
+            target.DisplayName,
+            target.Id
+        );
         CopyDirectory(targetParked, wtfActive);
 
         WriteActiveMarker(target.Id);
-        log($"Profile switched to '{target.DisplayName}'.");
+        _logger.LogInformation("Profile switched to '{DisplayName}'.", target.DisplayName);
     }
 
-    public void SaveCurrentAsProfile(string profileId, Action<string> log)
+    public void SaveCurrentAsProfile(string profileId)
     {
         var wtfActive = Path.Combine(GamePath, WtfFolderName);
         if (!_fs.DirectoryExists(wtfActive))
@@ -107,18 +118,18 @@ public sealed class ProfileManager : IProfileManager
         var dest = Path.Combine(ProfilesPath, profileId);
         if (_fs.DirectoryExists(dest))
         {
-            log($"Overwriting existing profile '{profileId}'...");
+            _logger.LogInformation("Overwriting existing profile '{ProfileId}'...", profileId);
             ClearReadOnlyAttributes(dest);
             _fs.DeleteDirectory(dest, recursive: true);
         }
 
-        log($"Copying WTF → {profileId}/...");
+        _logger.LogInformation("Copying WTF → {ProfileId}/...", profileId);
         CopyDirectory(wtfActive, dest);
         WriteActiveMarker(profileId);
-        log($"Profile '{profileId}' saved.");
+        _logger.LogInformation("Profile '{ProfileId}' saved.", profileId);
     }
 
-    public void RestoreActiveProfile(Action<string> log)
+    public void RestoreActiveProfile()
     {
         var activeId = ReadActiveMarker();
         if (string.IsNullOrEmpty(activeId))
@@ -132,7 +143,7 @@ public sealed class ProfileManager : IProfileManager
 
         var wtfPath = Path.Combine(GamePath, WtfFolderName);
 
-        log($"Restoring profile '{activeId}' from saved snapshot...");
+        _logger.LogInformation("Restoring profile '{ProfileId}' from saved snapshot...", activeId);
         if (_fs.DirectoryExists(wtfPath))
         {
             ClearReadOnlyAttributes(wtfPath);
@@ -140,7 +151,7 @@ public sealed class ProfileManager : IProfileManager
         }
 
         CopyDirectory(profilePath, wtfPath);
-        log($"Profile '{activeId}' restored from saved snapshot.");
+        _logger.LogInformation("Profile '{ProfileId}' restored from saved snapshot.", activeId);
     }
 
     private void MarkActiveProfile(List<ProfileInfo> profiles, string activeId)

@@ -14,6 +14,7 @@ public class ProfileManagerTests
     private IFixture _fixture = null!;
     private IFileSystem _fs = null!;
     private ISettingsService _settings = null!;
+    private CapturingLogger<ProfileManager> _logger = null!;
     private ProfileManager _sut = null!;
 
     [SetUp]
@@ -33,7 +34,8 @@ public class ProfileManagerTests
             new AppSettings { GamePath = @"C:\Game", ProfilesPath = @"C:\Game\Profiles" }
         );
 
-        _sut = new ProfileManager(_settings, _fs);
+        _logger = new CapturingLogger<ProfileManager>();
+        _sut = new ProfileManager(_settings, _fs, _logger);
     }
 
     [Test]
@@ -170,7 +172,7 @@ public class ProfileManagerTests
         _fs.DirectoryExists(@"C:\Game\Profiles\Alice").Returns(false);
 
         // Act & Assert
-        Should.Throw<InvalidOperationException>(() => _sut.SwitchTo(target, _ => { }));
+        Should.Throw<InvalidOperationException>(() => _sut.SwitchTo(target));
     }
 
     [Test]
@@ -182,13 +184,12 @@ public class ProfileManagerTests
         _fs.ReadAllText(markerPath).Returns("Alice");
 
         var target = new ProfileInfo { Id = "Alice", FolderPath = @"C:\Game\Profiles\Alice" };
-        var logMessages = new List<string>();
 
         // Act
-        _sut.SwitchTo(target, msg => logMessages.Add(msg));
+        _sut.SwitchTo(target);
 
         // Assert
-        logMessages.ShouldContain(m => m.Contains("already active"));
+        _logger.HasInformation(m => m.Contains("already active")).ShouldBeTrue();
         _fs.DidNotReceive().DeleteDirectory(Arg.Any<string>(), Arg.Any<bool>());
         _fs.DidNotReceive().CopyFile(Arg.Any<string>(), Arg.Any<string>());
     }
@@ -205,17 +206,15 @@ public class ProfileManagerTests
             .Returns([@"C:\Game\Profiles\Alice\Config.wtf"]);
         _fs.GetDirectories(@"C:\Game\Profiles\Alice").Returns([]);
 
-        var logMessages = new List<string>();
-
         // Act
-        _sut.SwitchTo(target, msg => logMessages.Add(msg));
+        _sut.SwitchTo(target);
 
         // Assert
         _fs.DidNotReceive().DeleteDirectory(@"C:\Game\WTF", true);
         _fs.Received().CreateDirectory(@"C:\Game\WTF");
         _fs.Received().CopyFile(@"C:\Game\Profiles\Alice\Config.wtf", @"C:\Game\WTF\Config.wtf");
         _fs.Received().WriteAllText(@"C:\Game\Profiles\.active", "Alice");
-        logMessages.ShouldContain(m => m.Contains("Profile switched to"));
+        _logger.HasInformation(m => m.Contains("Profile switched to")).ShouldBeTrue();
     }
 
     [Test]
@@ -234,10 +233,8 @@ public class ProfileManagerTests
             .Returns([@"C:\Game\Profiles\Alice\Config.wtf"]);
         _fs.GetDirectories(@"C:\Game\Profiles\Alice").Returns([]);
 
-        var logMessages = new List<string>();
-
         // Act
-        _sut.SwitchTo(target, msg => logMessages.Add(msg));
+        _sut.SwitchTo(target);
 
         // Assert
         Received.InOrder(() =>
@@ -246,8 +243,8 @@ public class ProfileManagerTests
             _fs.CreateDirectory(@"C:\Game\WTF");
             _fs.CopyFile(@"C:\Game\Profiles\Alice\Config.wtf", @"C:\Game\WTF\Config.wtf");
         });
-        logMessages.ShouldContain(m => m.Contains("Removing current WTF"));
-        logMessages.ShouldContain(m => m.Contains("Activating"));
+        _logger.HasInformation(m => m.Contains("Removing current WTF")).ShouldBeTrue();
+        _logger.HasInformation(m => m.Contains("Activating")).ShouldBeTrue();
     }
 
     [Test]
@@ -271,7 +268,7 @@ public class ProfileManagerTests
         _fs.GetAttributes(readOnlyFile).Returns(FileAttributes.ReadOnly);
 
         // Act
-        _sut.SwitchTo(target, _ => { });
+        _sut.SwitchTo(target);
 
         // Assert
         _fs.Received().SetAttributes(readOnlyFile, FileAttributes.None);
@@ -290,7 +287,7 @@ public class ProfileManagerTests
         _fs.GetDirectories(@"C:\Game\Profiles\Alice").Returns([]);
 
         // Act
-        _sut.SwitchTo(target, _ => { });
+        _sut.SwitchTo(target);
 
         // Assert — profile folder is never moved or deleted
         _fs.DidNotReceive().DeleteDirectory(@"C:\Game\Profiles\Alice", Arg.Any<bool>());
@@ -309,16 +306,14 @@ public class ProfileManagerTests
         _fs.GetFiles(@"C:\Game\Profiles\Alice", "*", SearchOption.TopDirectoryOnly).Returns([]);
         _fs.GetDirectories(@"C:\Game\Profiles\Alice").Returns([]);
 
-        var logMessages = new List<string>();
-
         // Act
-        _sut.SwitchTo(target, msg => logMessages.Add(msg));
+        _sut.SwitchTo(target);
 
         // Assert
         _fs.Received().DeleteDirectory(@"C:\Game\WTF", true);
         _fs.Received().CreateDirectory(@"C:\Game\WTF");
-        logMessages.ShouldContain(m => m.Contains("Removing current WTF"));
-        logMessages.ShouldContain(m => m.Contains("Profile switched to"));
+        _logger.HasInformation(m => m.Contains("Removing current WTF")).ShouldBeTrue();
+        _logger.HasInformation(m => m.Contains("Profile switched to")).ShouldBeTrue();
     }
 
     [Test]
@@ -328,7 +323,7 @@ public class ProfileManagerTests
         _fs.DirectoryExists(@"C:\Game\WTF").Returns(false);
 
         // Act & Assert
-        Should.Throw<InvalidOperationException>(() => _sut.SaveCurrentAsProfile("Test", _ => { }));
+        Should.Throw<InvalidOperationException>(() => _sut.SaveCurrentAsProfile("Test"));
     }
 
     [Test]
@@ -343,7 +338,7 @@ public class ProfileManagerTests
         _fs.GetDirectories(@"C:\Game\WTF").Returns([]);
 
         // Act
-        _sut.SaveCurrentAsProfile("Test", _ => { });
+        _sut.SaveCurrentAsProfile("Test");
 
         // Assert
         _fs.Received().CreateDirectory(@"C:\Game\Profiles\Test");
@@ -371,17 +366,15 @@ public class ProfileManagerTests
             });
         _fs.GetAttributes(readOnlyFile).Returns(FileAttributes.ReadOnly);
 
-        var logMessages = new List<string>();
-
         // Act
-        _sut.SaveCurrentAsProfile("Test", msg => logMessages.Add(msg));
+        _sut.SaveCurrentAsProfile("Test");
 
         // Assert
         _fs.Received().GetFiles(@"C:\Game\Profiles\Test", "*", SearchOption.AllDirectories);
         _fs.Received().GetAttributes(readOnlyFile);
         _fs.Received().SetAttributes(readOnlyFile, FileAttributes.None);
         _fs.Received().DeleteDirectory(@"C:\Game\Profiles\Test", true);
-        logMessages.ShouldContain(m => m.Contains("Overwriting"));
+        _logger.HasInformation(m => m.Contains("Overwriting")).ShouldBeTrue();
     }
 
     [Test]
@@ -394,7 +387,7 @@ public class ProfileManagerTests
         _fs.GetDirectories(@"C:\Game\WTF").Returns([]);
 
         // Act
-        _sut.SaveCurrentAsProfile("Test", _ => { });
+        _sut.SaveCurrentAsProfile("Test");
 
         // Assert
         _fs.Received().CreateDirectory(@"C:\Game\Profiles");
@@ -406,7 +399,7 @@ public class ProfileManagerTests
         // Arrange — no .active marker file
 
         // Act & Assert
-        Should.Throw<InvalidOperationException>(() => _sut.RestoreActiveProfile(_ => { }));
+        Should.Throw<InvalidOperationException>(() => _sut.RestoreActiveProfile());
     }
 
     [Test]
@@ -419,7 +412,7 @@ public class ProfileManagerTests
         _fs.DirectoryExists(@"C:\Game\Profiles\Alice").Returns(false);
 
         // Act & Assert
-        var ex = Should.Throw<InvalidOperationException>(() => _sut.RestoreActiveProfile(_ => { }));
+        var ex = Should.Throw<InvalidOperationException>(() => _sut.RestoreActiveProfile());
         ex.Message.ShouldContain("Alice");
     }
 
@@ -436,10 +429,8 @@ public class ProfileManagerTests
             .Returns([@"C:\Game\Profiles\Alice\Config.wtf"]);
         _fs.GetDirectories(@"C:\Game\Profiles\Alice").Returns([]);
 
-        var logMessages = new List<string>();
-
         // Act
-        _sut.RestoreActiveProfile(msg => logMessages.Add(msg));
+        _sut.RestoreActiveProfile();
 
         // Assert
         Received.InOrder(() =>
@@ -448,7 +439,7 @@ public class ProfileManagerTests
             _fs.CreateDirectory(@"C:\Game\WTF");
             _fs.CopyFile(@"C:\Game\Profiles\Alice\Config.wtf", @"C:\Game\WTF\Config.wtf");
         });
-        logMessages.ShouldContain(m => m.Contains("restored"));
+        _logger.HasInformation(m => m.Contains("restored")).ShouldBeTrue();
     }
 
     [Test]
@@ -465,7 +456,7 @@ public class ProfileManagerTests
         _fs.GetDirectories(@"C:\Game\Profiles\Alice").Returns([]);
 
         // Act
-        _sut.RestoreActiveProfile(_ => { });
+        _sut.RestoreActiveProfile();
 
         // Assert
         _fs.DidNotReceive().DeleteDirectory(@"C:\Game\WTF", Arg.Any<bool>());
@@ -496,7 +487,7 @@ public class ProfileManagerTests
         _fs.GetDirectories(@"C:\Game\Profiles\Alice").Returns([]);
 
         // Act
-        _sut.RestoreActiveProfile(_ => { });
+        _sut.RestoreActiveProfile();
 
         // Assert
         _fs.Received().SetAttributes(readOnlyFile, FileAttributes.None);

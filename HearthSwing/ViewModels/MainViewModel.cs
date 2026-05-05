@@ -194,7 +194,7 @@ public partial class MainViewModel : ObservableObject
         try
         {
             UnlockCacheIfNeeded();
-            _profileManager.SwitchTo(target, AppendLog);
+            _profileManager.SwitchTo(target);
             RefreshState();
             StatusText = $"Active: {CurrentProfileName}";
         }
@@ -355,7 +355,7 @@ public partial class MainViewModel : ObservableObject
         try
         {
             UnlockCacheIfNeeded();
-            _profileManager.RestoreActiveProfile(AppendLog);
+            _profileManager.RestoreActiveProfile();
             RefreshState();
             StatusText = $"Profile restored: {CurrentProfileName}";
         }
@@ -710,7 +710,7 @@ public partial class MainViewModel : ObservableObject
         if (VersioningEnabled && _fs.DirectoryExists(profilePath))
             await RunTrackedArchiveAsync(_versionService.CreateVersionAsync(profileId));
 
-        _profileManager.SaveCurrentAsProfile(profileId, AppendLog);
+        _profileManager.SaveCurrentAsProfile(profileId);
     }
 
     private async Task RunTrackedArchiveAsync(Task archiveTask)

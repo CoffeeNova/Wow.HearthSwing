@@ -8,7 +8,7 @@ public interface IProfileManager
     string ProfilesPath { get; }
     List<ProfileInfo> DiscoverProfiles();
     ProfileInfo? DetectCurrentProfile();
-    void SwitchTo(ProfileInfo target, Action<string> log);
-    void SaveCurrentAsProfile(string profileId, Action<string> log);
-    void RestoreActiveProfile(Action<string> log);
+    void SwitchTo(ProfileInfo target);
+    void SaveCurrentAsProfile(string profileId);
+    void RestoreActiveProfile();
 }
