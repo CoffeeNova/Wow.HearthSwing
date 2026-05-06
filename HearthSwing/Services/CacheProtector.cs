@@ -60,8 +60,7 @@ public sealed class CacheProtector : ICacheProtector
     }
 
     /// <summary>
-    /// Creates in-memory backups of all scoped cache files, touches timestamps so the WoW
-    /// client considers local data newer than server data, sets read-only, and starts
+    /// Creates in-memory backups of all scoped cache files, sets them read-only, and starts
     /// FileSystemWatchers to restore files if WoW overwrites them.
     /// </summary>
     public void Lock(string wtfPath, string? accountName = null)
@@ -77,15 +76,10 @@ public sealed class CacheProtector : ICacheProtector
         var files = CollectCacheFiles(wtfPath, accountName);
         _backups.Clear();
 
-        var now = DateTime.Now;
-        BackupAndProtectFiles(files, now);
-        TouchOldCompanions(wtfPath, now);
+        BackupAndProtectFiles(files);
         StartWatchers(wtfPath, accountName);
         _locked = true;
-        _logger.LogInformation(
-            "Locked {Count} cache files (read-only + timestamps touched).",
-            _backups.Count
-        );
+        _logger.LogInformation("Locked {Count} cache files (read-only).", _backups.Count);
     }
 
     public void Unlock()
@@ -102,8 +96,8 @@ public sealed class CacheProtector : ICacheProtector
     }
 
     /// <summary>
-    /// Overwrites all protected cache files from in-memory backups, touches their
-    /// timestamps so the client re-reads local data after a /reload in game.
+    /// Overwrites all protected cache files from in-memory backups so they can be re-read
+    /// after a /reload in game.
     /// </summary>
     public void ForceRestore(string wtfPath)
     {
@@ -113,15 +107,13 @@ public sealed class CacheProtector : ICacheProtector
             return;
         }
 
-        var now = DateTime.Now;
         StopWatchers();
-        var restored = RestoreAllFromBackups(now);
-        TouchOldCompanions(wtfPath, now);
+        var restored = RestoreAllFromBackups();
         StartWatchers(wtfPath, _currentAccountName);
         _locked = true;
 
         _logger.LogInformation(
-            "Force-restored {Count} cache files with fresh timestamps. Type /reload in WoW.",
+            "Force-restored {Count} cache files from backup. Type /reload in WoW.",
             restored
         );
     }
@@ -161,14 +153,13 @@ public sealed class CacheProtector : ICacheProtector
         }
     }
 
-    private void BackupAndProtectFiles(List<string> files, DateTime now)
+    private void BackupAndProtectFiles(List<string> files)
     {
         foreach (var file in files)
         {
             try
             {
                 _backups[file] = _fs.ReadAllBytes(file);
-                TouchTimestamp(file, now);
                 SetReadOnly(file, true);
             }
             catch (Exception ex)
@@ -213,7 +204,7 @@ public sealed class CacheProtector : ICacheProtector
         _logger.LogInformation("Snapshot: {Count} files captured for restore.", _backups.Count);
     }
 
-    private int RestoreAllFromBackups(DateTime now)
+    private int RestoreAllFromBackups()
     {
         var restored = 0;
         foreach (var (file, backup) in _backups)
@@ -222,7 +213,6 @@ public sealed class CacheProtector : ICacheProtector
             {
                 SetReadOnly(file, false);
                 _fs.WriteAllBytes(file, backup);
-                TouchTimestamp(file, now);
                 SetReadOnly(file, true);
                 restored++;
             }
@@ -316,46 +306,6 @@ public sealed class CacheProtector : ICacheProtector
                 Path.GetFileName(e.FullPath),
                 ex.Message
             );
-        }
-    }
-
-    private void TouchTimestamp(string filePath, DateTime when)
-    {
-        if (!_fs.FileExists(filePath))
-            return;
-
-        var attrs = _fs.GetAttributes(filePath);
-        var wasReadOnly = (attrs & FileAttributes.ReadOnly) != 0;
-        if (wasReadOnly)
-            _fs.SetAttributes(filePath, attrs & ~FileAttributes.ReadOnly);
-
-        _fs.SetLastWriteTime(filePath, when);
-        _fs.SetLastWriteTimeUtc(filePath, when.ToUniversalTime());
-
-        if (wasReadOnly)
-            _fs.SetAttributes(filePath, attrs);
-    }
-
-    /// <summary>
-    /// Touch .old/.bak companion files so WoW can't use them as older timestamp
-    /// reference points to justify re-syncing from the server.
-    /// </summary>
-    private void TouchOldCompanions(string wtfPath, DateTime when)
-    {
-        if (!_fs.DirectoryExists(wtfPath))
-            return;
-
-        string[] oldPatterns = ["*.old", "*.bak"];
-        foreach (var pattern in oldPatterns)
-        {
-            try
-            {
-                foreach (var file in _fs.GetFiles(wtfPath, pattern, SearchOption.AllDirectories))
-                    TouchTimestamp(file, when);
-            }
-            catch
-            { /* best effort */
-            }
         }
     }
 

@@ -174,7 +174,6 @@ public class CacheProtectorTests
 
         // Assert
         _fs.Received().ReadAllBytes(cacheFile);
-        _fs.Received().SetLastWriteTime(cacheFile, Arg.Any<DateTime>());
         _fs.Received()
             .SetAttributes(
                 cacheFile,
@@ -338,7 +337,6 @@ public class CacheProtectorTests
 
         // Assert
         _fs.Received().WriteAllBytes(cacheFile, backupData);
-        _fs.Received().SetLastWriteTime(cacheFile, Arg.Any<DateTime>());
         _sut.IsLocked.ShouldBeTrue();
         _logger
             .HasInformation(m => m.Contains("Force-restored") && m.Contains("/reload"))
