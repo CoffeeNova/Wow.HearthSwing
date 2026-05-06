@@ -186,15 +186,15 @@
       <RowDefinition Height="Auto" />
       <!-- 0: Title -->
       <RowDefinition Height="Auto" />
-      <!-- 1: Active profile -->
+      <!-- 1: Active account -->
       <RowDefinition Height="Auto" />
-      <!-- 2: Profile buttons -->
+      <!-- 2: Saved account buttons -->
       <RowDefinition Height="Auto" />
       <!-- 3: Action buttons -->
       <RowDefinition Height="Auto" />
-      <!-- 4: Save profile -->
+      <!-- 4: Save account -->
       <RowDefinition Height="Auto" />
-      <!-- 5: Character picker -->
+      <!-- 5: Live account summary -->
       <RowDefinition Height="*" />
       <!-- 6: Log -->
       <RowDefinition Height="Auto" />
@@ -214,7 +214,7 @@
       Margin="0,0,0,4"
     />
 
-    <!-- Current profile indicator -->
+    <!-- Current account indicator -->
     <Border
       Grid.Row="1"
       Background="{StaticResource PanelBg}"
@@ -224,14 +224,14 @@
     >
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
         <TextBlock
-          Text="Active Profile: "
+          Text="Active Account: "
           FontSize="14"
           Foreground="{StaticResource TextSecondary}"
           VerticalAlignment="Center"
         />
         <TextBlock
           x:Name="ProfileIndicator"
-          Text="{Binding CurrentProfileName}"
+          Text="{Binding CurrentAccountName}"
           FontSize="18"
           FontWeight="Bold"
           Foreground="{StaticResource DonkyBrush}"
@@ -240,11 +240,11 @@
       </StackPanel>
     </Border>
 
-    <!-- Profile switch buttons (dynamic) -->
+    <!-- Saved account switch buttons (dynamic) -->
     <ItemsControl
       x:Name="ProfileButtons"
       Grid.Row="2"
-      ItemsSource="{Binding Profiles}"
+      ItemsSource="{Binding SavedAccounts}"
       Margin="0,8"
     >
       <ItemsControl.ItemsPanel>
@@ -259,7 +259,7 @@
             Style="{StaticResource ProfileBtn}"
             Background="{StaticResource CardBg}"
             BorderBrush="{StaticResource DonkyBrush}"
-            Command="{Binding DataContext.SwitchProfileCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+            Command="{Binding DataContext.SwitchSavedAccountCommand, RelativeSource={RelativeSource AncestorType=Window}}"
             CommandParameter="{Binding Id}"
             MinWidth="120"
           />
@@ -281,7 +281,7 @@
         Style="{StaticResource ActionBtn}"
         Background="#6c5ce7"
         Command="{Binding ForceRestoreCommand}"
-        ToolTip="WoW running: restore cache files from backup, then /reload. WoW closed: restore WTF from saved profile snapshot."
+        ToolTip="WoW running: restore cache files from backup, then /reload. WoW closed: restore WTF from the active saved account snapshot."
         MinWidth="100"
       />
       <Button
@@ -295,7 +295,7 @@
       />
     </StackPanel>
 
-    <!-- Save current WTF as profile -->
+    <!-- Save account entry point -->
     <Border
       Grid.Row="4"
       Background="{StaticResource PanelBg}"
@@ -305,30 +305,30 @@
     >
       <Grid>
         <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="Auto" />
           <ColumnDefinition Width="*" />
           <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
-        <TextBlock
-          Text="Save WTF as:"
-          Foreground="{StaticResource TextSecondary}"
-          FontSize="12"
-          VerticalAlignment="Center"
-          Margin="0,0,6,0"
-        />
-        <TextBox
-          Grid.Column="1"
-          Text="{Binding NewProfileName, UpdateSourceTrigger=PropertyChanged}"
-          FontSize="12"
-          Padding="4,3"
-          VerticalAlignment="Center"
-        />
+        <StackPanel>
+          <TextBlock
+            Text="Save Account"
+            Foreground="{StaticResource TextPrimary}"
+            FontSize="13"
+            FontWeight="SemiBold"
+          />
+          <TextBlock
+            Text="Choose a live WoW account, review changed characters, then save only the slices you want."
+            Foreground="{StaticResource TextSecondary}"
+            FontSize="11"
+            TextWrapping="Wrap"
+            Margin="0,2,12,0"
+          />
+        </StackPanel>
         <Button
-          Grid.Column="2"
-          Content="Save"
+          Grid.Column="1"
+          Content="Review Save"
           Style="{StaticResource ActionBtn}"
           Background="{StaticResource DonkyBrush}"
-          Command="{Binding SaveCurrentProfileCommand}"
+          Command="{Binding SaveAccountCommand}"
           Padding="12,4"
           Margin="4,0,0,0"
           MinWidth="60"
@@ -336,7 +336,7 @@
       </Grid>
     </Border>
 
-    <!-- Character Picker panel (row 5) -->
+    <!-- Live account summary (row 5) -->
     <Border
       Grid.Row="5"
       Background="{StaticResource PanelBg}"
@@ -345,146 +345,19 @@
       Margin="0,4,0,0"
     >
       <StackPanel>
-
-        <!-- Mode toggle row -->
-        <CheckBox
-          Content="Character Mode"
-          IsChecked="{Binding CharacterPicker.IsCharacterModeEnabled}"
-          Foreground="{StaticResource TextSecondary}"
-          FontSize="12"
-          Cursor="Hand"
-          Margin="0,0,0,4"
+        <TextBlock
+          Text="Live WTF Accounts"
+          Foreground="{StaticResource TextPrimary}"
+          FontSize="13"
+          FontWeight="SemiBold"
         />
-
-        <!-- Picker fields (only visible when character mode is on) -->
-        <StackPanel
-          Visibility="{Binding CharacterPicker.IsCharacterModeEnabled, Converter={StaticResource BoolToVis}}"
-        >
-
-          <!-- Owner (LocalProfileId) -->
-          <Grid Margin="0,0,0,4">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="70" />
-              <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-            <TextBlock
-              Text="Owner:"
-              Foreground="{StaticResource TextSecondary}"
-              FontSize="11"
-              VerticalAlignment="Center"
-            />
-            <TextBox
-              Grid.Column="1"
-              Text="{Binding CharacterPicker.LocalProfileId, UpdateSourceTrigger=PropertyChanged}"
-              FontSize="11"
-              Padding="4,2"
-              ToolTip="Your local name (e.g. Ihar, Wife)"
-            />
-          </Grid>
-
-          <!-- Account -->
-          <Grid Margin="0,0,0,4">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="70" />
-              <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-            <TextBlock
-              Text="Account:"
-              Foreground="{StaticResource TextSecondary}"
-              FontSize="11"
-              VerticalAlignment="Center"
-            />
-            <ComboBox
-              Grid.Column="1"
-              ItemsSource="{Binding CharacterPicker.Accounts}"
-              SelectedItem="{Binding CharacterPicker.SelectedAccount}"
-              FontSize="11"
-              Padding="4,2"
-            />
-          </Grid>
-
-          <!-- Realm (only when account selected) -->
-          <Grid
-            Margin="0,0,0,4"
-          >
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="70" />
-              <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-            <TextBlock
-              Text="Realm:"
-              Foreground="{StaticResource TextSecondary}"
-              FontSize="11"
-              VerticalAlignment="Center"
-            />
-            <ComboBox
-              Grid.Column="1"
-              ItemsSource="{Binding CharacterPicker.Realms}"
-              SelectedItem="{Binding CharacterPicker.SelectedRealm}"
-              FontSize="11"
-              Padding="4,2"
-            />
-          </Grid>
-
-          <!-- Character (only when realm selected) -->
-          <Grid Margin="0,0,0,6">
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="70" />
-              <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-            <TextBlock
-              Text="Character:"
-              Foreground="{StaticResource TextSecondary}"
-              FontSize="11"
-              VerticalAlignment="Center"
-            />
-            <ComboBox
-              Grid.Column="1"
-              ItemsSource="{Binding CharacterPicker.Characters}"
-              SelectedItem="{Binding CharacterPicker.SelectedCharacter}"
-              FontSize="11"
-              Padding="4,2"
-            />
-          </Grid>
-
-          <!-- Save mode -->
-          <StackPanel Orientation="Horizontal">
-            <TextBlock
-              Text="Mode:"
-              Foreground="{StaticResource TextSecondary}"
-              FontSize="11"
-              VerticalAlignment="Center"
-              Width="62"
-            />
-            <RadioButton
-              Content="Full WTF"
-              IsChecked="{Binding CharacterPicker.IsSaveModeFullWtf}"
-              Foreground="{StaticResource TextSecondary}"
-              FontSize="11"
-              VerticalAlignment="Center"
-              Margin="0,0,10,0"
-              Cursor="Hand"
-            />
-            <RadioButton
-              Content="Account"
-              IsChecked="{Binding CharacterPicker.IsSaveModePerAccount}"
-              Foreground="{StaticResource TextSecondary}"
-              FontSize="11"
-              VerticalAlignment="Center"
-              Margin="0,0,10,0"
-              Cursor="Hand"
-            />
-            <RadioButton
-              Content="Character"
-              IsChecked="{Binding CharacterPicker.IsSaveModePerCharacter}"
-              Foreground="{StaticResource TextSecondary}"
-              FontSize="11"
-              VerticalAlignment="Center"
-              Cursor="Hand"
-            />
-          </StackPanel>
-
-        </StackPanel>
+        <TextBlock
+          Text="{Binding DetectedLiveAccountsSummary}"
+          Foreground="{StaticResource TextSecondary}"
+          FontSize="11"
+          TextWrapping="Wrap"
+          Margin="0,4,0,0"
+        />
       </StackPanel>
     </Border>
 
@@ -612,7 +485,7 @@
           />
 
           <TextBlock
-            Text="Profiles Path:"
+            Text="Saved Accounts Path:"
             Foreground="{StaticResource TextSecondary}"
             FontSize="12"
             Margin="0,0,0,2"
@@ -640,7 +513,7 @@
           />
 
           <CheckBox
-            Content="Enable profile versioning"
+            Content="Enable account versioning"
             IsChecked="{Binding VersioningEnabled}"
             Foreground="{StaticResource TextSecondary}"
             FontSize="12"
@@ -732,7 +605,7 @@
             <Run Text="{Binding AppVersion, Mode=OneTime}" FontWeight="SemiBold" />
           </TextBlock>
           <TextBlock
-            Text="WoW Classic Anniversary profile switcher"
+            Text="WoW Classic Anniversary account switcher"
             Foreground="{StaticResource TextSecondary}"
             FontSize="12"
             TextWrapping="Wrap"
@@ -806,19 +679,19 @@
                 FontWeight="SemiBold"
                 Text="1. Setup"
               />
-Place HearthSwing.exe anywhere you like. Open Settings and set the Game Path (folder with WowClassic.exe) and Profiles Path (where profile snapshots are stored).
+Place HearthSwing.exe anywhere you like. Open Settings and set the Game Path (folder with WowClassic.exe) and Saved Accounts Path (where saved account snapshots are stored).
 
 <Run
                 FontWeight="SemiBold"
-                Text="2. Save a profile"
+                Text="2. Save an account"
               />
-Enter a name in the "Save WTF as" field and click Save. This copies your current WTF folder as a named profile snapshot.
+Click "Save Account" or "Review Save". HearthSwing scans the live WTF accounts. If the account has never been saved, it captures the full account snapshot. If it already exists, it shows account settings plus realm and character checkboxes, preselecting the slices that actually changed.
 
 <Run
                 FontWeight="SemiBold"
-                Text="3. Switch profiles"
+                Text="3. Switch accounts"
               />
-Click a profile button to swap the active WTF folder. The previous profile is parked automatically. After switching, launch WoW and click Restore, then type /reload in the game to apply the restored cache files.
+Click a saved account button to apply that account snapshot into WTF. After switching, launch WoW and click Restore, then type /reload in the game to apply the restored cache files.
 
 <Run
                 FontWeight="SemiBold"
@@ -830,7 +703,13 @@ Click "Launch WoW" to start the game with cache protection enabled. Cache files 
                 FontWeight="SemiBold"
                 Text="5. Cache protection"
               />
-After launch, cache files stay locked for the configured delay (default 120s). Use "Unlock" to release early or "Restore" to force-restore from backup while WoW is running (type /reload after).
+After launch, cache files stay locked for the configured delay (default 120s). Use "Unlock" to release early or "Restore" to force-restore from the active saved account while WoW is running (type /reload after).
+
+<Run
+                FontWeight="SemiBold"
+                Text="6. Save on exit"
+              />
+If Save on Exit is enabled, HearthSwing compares the live account against the active saved snapshot when WoW closes. Auto-save writes changed account settings and characters immediately; otherwise the save review overlay opens so you can confirm the changed slices.
 
 <Run
                 FontWeight="SemiBold"
@@ -852,55 +731,152 @@ HearthSwing transfers macros, keybindings, edit mode layout, and addon settings.
       </Border>
     </Border>
 
-    <!-- Save prompt (inline, shown when WoW exits) -->
+    <!-- Save account overlay -->
     <Border
       Grid.Row="0"
       Grid.RowSpan="9"
       Background="#ee1a1a2e"
       CornerRadius="8"
-      Visibility="{Binding IsSavePromptVisible, Converter={StaticResource BoolToVis}}"
+      Visibility="{Binding IsSaveSelectionVisible, Converter={StaticResource BoolToVis}}"
       Padding="20"
       VerticalAlignment="Center"
       HorizontalAlignment="Center"
-      MinWidth="320"
+      MinWidth="380"
     >
       <Border Background="{StaticResource CardBg}" CornerRadius="8" Padding="16">
-        <StackPanel>
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+          </Grid.RowDefinitions>
+
           <TextBlock
-            Text="Save Profile?"
+            Grid.Row="0"
+            Text="{Binding SaveSelectionTitle}"
             FontSize="16"
             FontWeight="Bold"
             Foreground="{StaticResource TextPrimary}"
             Margin="0,0,0,12"
           />
-          <TextBlock
-            Foreground="{StaticResource TextSecondary}"
-            FontSize="13"
-            TextWrapping="Wrap"
-            Margin="0,0,0,16"
-          >
-            <Run Text="WoW closed. Save profile '" />
-            <Run Text="{Binding SavePromptProfileName, Mode=OneWay}" FontWeight="SemiBold" />
-            <Run Text="'?" />
-          </TextBlock>
-          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+
+          <StackPanel Grid.Row="1" Margin="0,0,0,12">
+            <TextBlock
+              Text="Live Account:"
+              Foreground="{StaticResource TextSecondary}"
+              FontSize="12"
+              Margin="0,0,0,4"
+            />
+            <ComboBox
+              ItemsSource="{Binding LiveAccounts}"
+              SelectedItem="{Binding SelectedLiveAccountName}"
+              FontSize="12"
+              Padding="4,2"
+            />
+            <TextBlock
+              Text="{Binding SaveSelectionMessage}"
+              Foreground="{StaticResource TextSecondary}"
+              FontSize="12"
+              TextWrapping="Wrap"
+              Margin="0,8,0,0"
+            />
+          </StackPanel>
+
+          <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" MaxHeight="320">
+            <StackPanel>
+              <TextBlock
+                Text="New account: the whole account snapshot will be saved."
+                Foreground="{StaticResource TextSecondary}"
+                FontSize="12"
+                TextWrapping="Wrap"
+                Visibility="{Binding IsNewSaveAccount, Converter={StaticResource BoolToVis}}"
+                Margin="0,0,0,8"
+              />
+
+              <StackPanel Visibility="{Binding HasPendingCharacterNodes, Converter={StaticResource BoolToVis}}">
+                <CheckBox
+                  Content="Account settings (SavedVariables and account root files)"
+                  IsChecked="{Binding SaveAccountSettingsSelected}"
+                  Foreground="{StaticResource TextPrimary}"
+                  FontSize="12"
+                  Margin="0,0,0,8"
+                />
+
+                <ItemsControl ItemsSource="{Binding SaveRealms}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Expander IsExpanded="True" Margin="0,0,0,8">
+                        <Expander.Header>
+                          <StackPanel Orientation="Horizontal">
+                            <TextBlock
+                              Text="{Binding RealmName}"
+                              Foreground="{StaticResource TextPrimary}"
+                              FontWeight="SemiBold"
+                              FontSize="12"
+                            />
+                            <TextBlock
+                              Text="{Binding StatusText, StringFormat= ({0})}"
+                              Foreground="{StaticResource TextSecondary}"
+                              FontSize="11"
+                              Margin="6,0,0,0"
+                            />
+                          </StackPanel>
+                        </Expander.Header>
+
+                        <ItemsControl ItemsSource="{Binding Characters}" Margin="8,4,0,0">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                              <Grid Margin="0,2,0,2">
+                                <Grid.ColumnDefinitions>
+                                  <ColumnDefinition Width="*" />
+                                  <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <CheckBox
+                                  Content="{Binding CharacterName}"
+                                  IsChecked="{Binding IsSelected}"
+                                  Foreground="{StaticResource TextPrimary}"
+                                  FontSize="12"
+                                />
+                                <TextBlock
+                                  Grid.Column="1"
+                                  Text="{Binding StatusText}"
+                                  Foreground="{StaticResource TextSecondary}"
+                                  FontSize="11"
+                                  VerticalAlignment="Center"
+                                  Margin="8,0,0,0"
+                                />
+                              </Grid>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                      </Expander>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </StackPanel>
+          </ScrollViewer>
+
+          <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
             <Button
               Content="Save"
               Style="{StaticResource ActionBtn}"
               Background="{StaticResource LaunchGreen}"
-              Command="{Binding AcceptSavePromptCommand}"
+              Command="{Binding ConfirmSaveSelectionCommand}"
+              IsEnabled="{Binding CanConfirmSaveSelection}"
               MinWidth="80"
               Margin="0,0,8,0"
             />
             <Button
-              Content="Skip"
+              Content="Cancel"
               Style="{StaticResource ActionBtn}"
               Background="{StaticResource TextSecondary}"
-              Command="{Binding SkipSavePromptCommand}"
+              Command="{Binding CancelSaveSelectionCommand}"
               MinWidth="80"
             />
           </StackPanel>
-        </StackPanel>
+        </Grid>
       </Border>
     </Border>
 
@@ -919,7 +895,7 @@ HearthSwing transfers macros, keybindings, edit mode layout, and addon settings.
       <Border Background="{StaticResource CardBg}" CornerRadius="8" Padding="16">
         <StackPanel HorizontalAlignment="Center">
           <TextBlock
-            Text="Saving profile..."
+            Text="Saving account..."
             FontSize="16"
             FontWeight="Bold"
             Foreground="{StaticResource TextPrimary}"
@@ -962,7 +938,7 @@ HearthSwing transfers macros, keybindings, edit mode layout, and addon settings.
             Margin="0,0,0,12"
           >
             <Run Text="Version History — " />
-            <Run Text="{Binding CurrentProfileName, Mode=OneWay}" />
+            <Run Text="{Binding CurrentAccountName, Mode=OneWay}" />
           </TextBlock>
           <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" MaxHeight="300">
             <StackPanel>

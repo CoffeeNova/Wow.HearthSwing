@@ -1,12 +1,14 @@
 using System.IO;
-using HearthSwing.Models;
-using HearthSwing.Models.Profiles;
+using HearthSwing.Models.Accounts;
+using HearthSwing.Models.WoW;
 
 namespace HearthSwing.Services;
 
 public sealed class SwitchingOrchestrator : ISwitchingOrchestrator
 {
-    private readonly IProfileManager _profileManager;
+    private readonly ISavedAccountCatalog _savedAccountCatalog;
+    private readonly IAccountSnapshotSaveService _accountSnapshotSaveService;
+    private readonly IAccountSwitchService _accountSwitchService;
     private readonly ICacheProtector _cacheProtector;
     private readonly IProcessMonitor _processMonitor;
     private readonly IFileSystem _fs;
@@ -18,24 +20,28 @@ public sealed class SwitchingOrchestrator : ISwitchingOrchestrator
     public int ProtectedFileCount => _cacheProtector.ProtectedFileCount;
 
     public SwitchingOrchestrator(
-        IProfileManager profileManager,
+        ISavedAccountCatalog savedAccountCatalog,
+        IAccountSnapshotSaveService accountSnapshotSaveService,
+        IAccountSwitchService accountSwitchService,
         ICacheProtector cacheProtector,
         IProcessMonitor processMonitor,
         IFileSystem fileSystem,
         IProfileVersionService versionService
     )
     {
-        _profileManager = profileManager;
+        _savedAccountCatalog = savedAccountCatalog;
+        _accountSnapshotSaveService = accountSnapshotSaveService;
+        _accountSwitchService = accountSwitchService;
         _cacheProtector = cacheProtector;
         _processMonitor = processMonitor;
         _fs = fileSystem;
         _versionService = versionService;
     }
 
-    public void SwitchTo(ProfileInfo target)
+    public void SwitchTo(SavedAccountSummary target)
     {
         UnlockCache();
-        _profileManager.SwitchTo(target);
+        _accountSwitchService.SwitchTo(target);
     }
 
     public void UnlockCache()
@@ -48,18 +54,27 @@ public sealed class SwitchingOrchestrator : ISwitchingOrchestrator
 
     public int LockForLaunch()
     {
-        var wtfPath = _profileManager.WtfPath;
+        var wtfPath = _accountSwitchService.WtfPath;
         if (!_fs.DirectoryExists(wtfPath))
             return 0;
 
         UnlockCache();
-        _cacheProtector.Lock(wtfPath);
+        var activeAccount = _savedAccountCatalog.GetActiveAccount();
+        if (activeAccount is null)
+        {
+            _cacheProtector.Lock(wtfPath);
+        }
+        else
+        {
+            _cacheProtector.Lock(wtfPath, activeAccount.AccountName);
+        }
+
         return _cacheProtector.ProtectedFileCount;
     }
 
     public void ForceRestoreCache()
     {
-        var wtfPath = _profileManager.WtfPath;
+        var wtfPath = _accountSwitchService.WtfPath;
         SeedMissingCacheFiles(wtfPath);
         _cacheProtector.ForceRestore(wtfPath);
     }
@@ -67,48 +82,39 @@ public sealed class SwitchingOrchestrator : ISwitchingOrchestrator
     public void RestoreFromSaved()
     {
         UnlockCache();
-        _profileManager.RestoreActiveProfile();
+        if (_savedAccountCatalog.GetActiveAccount() is null)
+        {
+            Log?.Invoke("Warning: No active saved account to restore.");
+            return;
+        }
+
+        _accountSwitchService.RestoreActiveAccount();
     }
 
-    public async Task SaveWithVersioningAsync(
-        string profileId,
+    public async Task<SavedAccountSummary?> SaveAccountAsync(
+        WowAccount liveAccount,
+        AccountSavePlan savePlan,
         bool versioningEnabled,
         CancellationToken ct = default
     )
     {
-        if (!_fs.DirectoryExists(_profileManager.WtfPath))
+        if (!_fs.DirectoryExists(_accountSwitchService.WtfPath))
         {
             Log?.Invoke("Warning: WTF folder not found — skipping save.");
-            return;
+            return null;
         }
 
         UnlockCache();
 
-        var profilePath = Path.Combine(_profileManager.ProfilesPath, profileId);
-        if (versioningEnabled && _fs.DirectoryExists(profilePath))
-            await _versionService.CreateVersionAsync(profileId);
+        var existingSavedAccount = _savedAccountCatalog.FindByAccountName(liveAccount.AccountName);
+        if (
+            versioningEnabled
+            && existingSavedAccount is not null
+            && _fs.DirectoryExists(existingSavedAccount.RootPath)
+        )
+            await _versionService.CreateVersionAsync(existingSavedAccount.Id);
 
-        _profileManager.SaveCurrentAsProfile(profileId);
-    }
-
-    public async Task SaveWithVersioningAsync(
-        ProfileDescriptor descriptor,
-        bool versioningEnabled,
-        CancellationToken ct = default
-    )
-    {
-        if (!_fs.DirectoryExists(_profileManager.WtfPath))
-        {
-            Log?.Invoke("Warning: WTF folder not found — skipping save.");
-            return;
-        }
-
-        UnlockCache();
-
-        if (versioningEnabled && _fs.DirectoryExists(descriptor.SnapshotPath))
-            await _versionService.CreateVersionAsync(descriptor);
-
-        _profileManager.SaveCurrentAsProfile(descriptor);
+        return _accountSnapshotSaveService.Save(liveAccount, savePlan);
     }
 
     public async Task WaitForWowExitAndCleanupAsync(int postExitDelayMs, CancellationToken ct)
@@ -124,34 +130,45 @@ public sealed class SwitchingOrchestrator : ISwitchingOrchestrator
 
     private void SeedMissingCacheFiles(string wtfPath)
     {
-        var profile = _profileManager.DetectCurrentProfile();
-        if (profile is null)
+        var activeAccount = _savedAccountCatalog.GetActiveAccount();
+        if (activeAccount is null)
             return;
 
-        var profilePath = Path.Combine(_profileManager.ProfilesPath, profile.Id);
-        if (!_fs.DirectoryExists(profilePath))
+        SeedMissingCacheFilesFromSavedAccount(wtfPath, activeAccount);
+    }
+
+    private void SeedMissingCacheFilesFromSavedAccount(
+        string wtfPath,
+        ActiveAccountState activeAccount
+    )
+    {
+        var savedAccount = _savedAccountCatalog.GetById(activeAccount.SavedAccountId);
+        if (savedAccount is null || !_fs.DirectoryExists(savedAccount.RootPath))
             return;
 
-        var profileCacheFiles = _cacheProtector.CollectCacheFiles(profilePath);
+        var accountCacheFiles = _cacheProtector.CollectCacheFiles(
+            savedAccount.RootPath,
+            savedAccount.AccountName
+        );
+
         var seeded = 0;
-
-        foreach (var profileFile in profileCacheFiles)
+        foreach (var snapshotFile in accountCacheFiles)
         {
-            var relativePath = Path.GetRelativePath(profilePath, profileFile);
-            var wtfFile = Path.Combine(wtfPath, relativePath);
+            var relativePath = Path.GetRelativePath(savedAccount.RootPath, snapshotFile);
+            var liveFile = Path.Combine(wtfPath, relativePath);
 
-            if (_fs.FileExists(wtfFile))
+            if (_fs.FileExists(liveFile))
                 continue;
 
-            var dir = Path.GetDirectoryName(wtfFile);
-            if (dir is not null && !_fs.DirectoryExists(dir))
-                _fs.CreateDirectory(dir);
+            var liveDirectory = Path.GetDirectoryName(liveFile);
+            if (liveDirectory is not null && !_fs.DirectoryExists(liveDirectory))
+                _fs.CreateDirectory(liveDirectory);
 
-            _fs.CopyFile(profileFile, wtfFile);
+            _fs.CopyFile(snapshotFile, liveFile);
             seeded++;
         }
 
         if (seeded > 0)
-            Log?.Invoke($"Restored {seeded} missing cache file(s) from saved profile.");
+            Log?.Invoke($"Restored {seeded} missing cache file(s) from saved account.");
     }
 }

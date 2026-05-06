@@ -4,6 +4,7 @@ using System.Reflection;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HearthSwing.Models;
+using HearthSwing.Models.Accounts;
 using HearthSwing.Models.WoW;
 using HearthSwing.Services;
 
@@ -12,7 +13,8 @@ namespace HearthSwing.ViewModels;
 public partial class MainViewModel : ObservableObject
 {
     private readonly ISettingsService _settingsService;
-    private readonly IProfileManager _profileManager;
+    private readonly ISavedAccountCatalog _savedAccountCatalog;
+    private readonly IAccountSnapshotDiffService _accountSnapshotDiffService;
     private readonly ISwitchingOrchestrator _orchestrator;
     private readonly IProcessMonitor _processMonitor;
     private readonly IUpdateService _updateService;
@@ -21,18 +23,19 @@ public partial class MainViewModel : ObservableObject
     private readonly IUiDispatcher _uiDispatcher;
     private readonly IUiLogSink _logSink;
     private readonly IWtfInspector _wtfInspector;
+    private WowInstallation? _installation;
+    private WowAccount? _pendingLiveAccount;
     private CancellationTokenSource? _unlockCts;
     private CancellationTokenSource? _monitorCts;
-    private TaskCompletionSource<bool>? _savePromptTcs;
     private readonly object _archiveLock = new();
     private int _activeArchiveCount;
     private TaskCompletionSource? _archiveDoneTcs;
 
     [ObservableProperty]
-    private string _currentProfileName = "None";
+    private string _currentAccountName = "None";
 
     [ObservableProperty]
-    private string _currentProfileId = string.Empty;
+    private string _currentSavedAccountId = string.Empty;
 
     [ObservableProperty]
     private string _logText = string.Empty;
@@ -74,6 +77,33 @@ public partial class MainViewModel : ObservableObject
     private string _newProfileName = string.Empty;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanConfirmSaveSelection))]
+    private string? _selectedLiveAccountName;
+
+    [ObservableProperty]
+    private bool _isSaveSelectionVisible;
+
+    [ObservableProperty]
+    private string _saveSelectionTitle = "Save Account";
+
+    [ObservableProperty]
+    private string _saveSelectionMessage = "Choose a live account to save.";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanConfirmSaveSelection))]
+    private bool _isNewSaveAccount;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanConfirmSaveSelection))]
+    private bool _saveAccountSettingsSelected;
+
+    [ObservableProperty]
+    private bool _hasPendingCharacterNodes;
+
+    [ObservableProperty]
+    private string _detectedLiveAccountsSummary = "No live accounts detected.";
+
+    [ObservableProperty]
     private bool _isCheckingForUpdate;
 
     [ObservableProperty]
@@ -89,12 +119,6 @@ public partial class MainViewModel : ObservableObject
     private bool _autoSaveOnExit;
 
     [ObservableProperty]
-    private bool _isSavePromptVisible;
-
-    [ObservableProperty]
-    private string _savePromptProfileName = string.Empty;
-
-    [ObservableProperty]
     private bool _isVersionHistoryVisible;
 
     [ObservableProperty]
@@ -103,11 +127,21 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _isCloseBlockedByArchiving;
 
-    public ObservableCollection<ProfileInfo> Profiles { get; } = [];
+    public ObservableCollection<SavedAccountSummary> SavedAccounts { get; } = [];
+
+    public ObservableCollection<string> LiveAccounts { get; } = [];
+
+    public ObservableCollection<RealmSaveSelectionViewModel> SaveRealms { get; } = [];
 
     public ObservableCollection<ProfileVersion> Versions { get; } = [];
 
-    public CharacterPickerViewModel CharacterPicker { get; } = new();
+    public bool CanConfirmSaveSelection =>
+        _pendingLiveAccount is not null
+        && (
+            IsNewSaveAccount
+            || SaveAccountSettingsSelected
+            || SaveRealms.Any(realm => realm.Characters.Any(character => character.IsSelected))
+        );
 
     public string AppVersion { get; } = GetVersion();
 
@@ -127,7 +161,8 @@ public partial class MainViewModel : ObservableObject
 
     public MainViewModel(
         ISettingsService settingsService,
-        IProfileManager profileManager,
+        ISavedAccountCatalog savedAccountCatalog,
+        IAccountSnapshotDiffService accountSnapshotDiffService,
         ISwitchingOrchestrator orchestrator,
         IProcessMonitor processMonitor,
         IUpdateService updateService,
@@ -139,7 +174,8 @@ public partial class MainViewModel : ObservableObject
     )
     {
         _settingsService = settingsService;
-        _profileManager = profileManager;
+        _savedAccountCatalog = savedAccountCatalog;
+        _accountSnapshotDiffService = accountSnapshotDiffService;
         _orchestrator = orchestrator;
         _processMonitor = processMonitor;
         _updateService = updateService;
@@ -165,45 +201,61 @@ public partial class MainViewModel : ObservableObject
 
     private void RefreshState()
     {
-        var profile = _profileManager.DetectCurrentProfile();
-        CurrentProfileName = profile?.DisplayName ?? "None";
-        CurrentProfileId = profile?.Id ?? string.Empty;
-        NewProfileName = profile?.Id ?? string.Empty;
+        var activeSavedAccountState = _savedAccountCatalog.GetActiveAccount();
+        var activeSavedAccount = activeSavedAccountState is null
+            ? null
+            : _savedAccountCatalog.GetById(activeSavedAccountState.SavedAccountId);
+
+        CurrentAccountName =
+            activeSavedAccount?.AccountName ?? activeSavedAccountState?.AccountName ?? "None";
+        CurrentSavedAccountId =
+            activeSavedAccount?.Id ?? activeSavedAccountState?.SavedAccountId ?? string.Empty;
+        NewProfileName = activeSavedAccount?.AccountName ?? string.Empty;
         IsWowRunning = _processMonitor.IsWowRunning();
         IsCacheLocked = _orchestrator.IsCacheLocked;
 
-        Profiles.Clear();
-        foreach (var p in _profileManager.DiscoverProfiles())
-            Profiles.Add(p);
+        SavedAccounts.Clear();
+        foreach (var account in _savedAccountCatalog.DiscoverAccounts())
+            SavedAccounts.Add(account);
 
         if (!string.IsNullOrWhiteSpace(GamePath))
         {
             try
             {
                 var installation = _wtfInspector.Inspect(GamePath);
-                CharacterPicker.Refresh(installation);
+                _installation = installation;
+                UpdateLiveAccounts(installation);
             }
             catch (Exception ex)
             {
+                _installation = null;
+                LiveAccounts.Clear();
+                DetectedLiveAccountsSummary = "No live accounts detected.";
                 AppendLog($"Warning: WTF inspection failed — {ex.Message}");
             }
+        }
+        else
+        {
+            _installation = null;
+            LiveAccounts.Clear();
+            DetectedLiveAccountsSummary = "No live accounts detected.";
         }
     }
 
     [RelayCommand]
-    private void SwitchProfile(string profileId)
+    private void SwitchSavedAccount(string savedAccountId)
     {
         if (IsBusy)
             return;
 
-        var target = FindProfile(profileId);
+        var target = FindSavedAccount(savedAccountId);
         if (target is null)
             return;
 
         if (IsAlreadyActive(target))
             return;
 
-        if (GuardWowRunning("Close the game before switching profiles."))
+        if (GuardWowRunning("Close the game before switching accounts."))
             return;
 
         IsBusy = true;
@@ -212,7 +264,7 @@ public partial class MainViewModel : ObservableObject
         {
             _orchestrator.SwitchTo(target);
             RefreshState();
-            StatusText = $"Active: {CurrentProfileName}";
+            StatusText = $"Active account: {CurrentAccountName}";
         }
         catch (Exception ex)
         {
@@ -227,53 +279,13 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task SaveCurrentProfileAsync()
+    private Task SaveAccountAsync()
     {
-        if (GuardWowRunning("Close the game before saving a profile."))
-            return;
+        if (GuardWowRunning("Close the game before saving an account."))
+            return Task.CompletedTask;
 
-        IsBusy = true;
-        try
-        {
-            if (CharacterPicker.IsCharacterModeEnabled && CharacterPicker.CanBuildDescriptor)
-            {
-                var descriptor = CharacterPicker.TryBuildDescriptor(ProfilesPath);
-                if (descriptor is null)
-                {
-                    AppendLog("Cannot build profile descriptor — ensure all required fields are filled.");
-                    return;
-                }
-
-                await RunTrackedArchiveAsync(
-                    _orchestrator.SaveWithVersioningAsync(descriptor, VersioningEnabled)
-                );
-                RefreshState();
-                StatusText = $"Profile '{descriptor.DisplayName}' saved.";
-            }
-            else
-            {
-                var name = SanitizeProfileName(NewProfileName);
-                if (string.IsNullOrEmpty(name))
-                {
-                    AppendLog("Enter a profile name first.");
-                    return;
-                }
-
-                await RunTrackedArchiveAsync(
-                    _orchestrator.SaveWithVersioningAsync(name, VersioningEnabled)
-                );
-                RefreshState();
-                StatusText = $"Profile '{name}' saved.";
-            }
-        }
-        catch (Exception ex)
-        {
-            AppendLog($"ERROR: {ex.Message}");
-        }
-        finally
-        {
-            IsBusy = false;
-        }
+        OpenSaveSelection(title: "Save Account");
+        return Task.CompletedTask;
     }
 
     [RelayCommand]
@@ -294,9 +306,10 @@ public partial class MainViewModel : ObservableObject
             _processMonitor.LaunchWow(GamePath);
             IsWowRunning = true;
             IsCacheLocked = _orchestrator.IsCacheLocked;
-            StatusText = protectedCount > 0
-                ? $"Protected ({protectedCount} files) — Launching WoW..."
-                : "Launching WoW...";
+            StatusText =
+                protectedCount > 0
+                    ? $"Protected ({protectedCount} files) — Launching WoW..."
+                    : "Launching WoW...";
             AppendLog("WoW launched. Cache files are protected from server sync.");
 
             StartUnlockCountdown();
@@ -339,9 +352,9 @@ public partial class MainViewModel : ObservableObject
         }
         else
         {
-            if (string.IsNullOrEmpty(CurrentProfileId))
+            if (string.IsNullOrEmpty(CurrentSavedAccountId))
             {
-                AppendLog("No active profile to restore.");
+                AppendLog("No active saved account to restore.");
                 return;
             }
 
@@ -351,7 +364,7 @@ public partial class MainViewModel : ObservableObject
             {
                 _orchestrator.RestoreFromSaved();
                 RefreshState();
-                StatusText = $"Profile restored: {CurrentProfileName}";
+                StatusText = $"Account restored: {CurrentAccountName}";
             }
             catch (Exception ex)
             {
@@ -446,46 +459,33 @@ public partial class MainViewModel : ObservableObject
         RefreshState();
     }
 
-    private ProfileInfo? FindProfile(string profileId)
+    private SavedAccountSummary? FindSavedAccount(string savedAccountId)
     {
-        var target = Profiles.FirstOrDefault(p =>
-            p.Id.Equals(profileId, StringComparison.OrdinalIgnoreCase)
+        var target = SavedAccounts.FirstOrDefault(account =>
+            account.Id.Equals(savedAccountId, StringComparison.OrdinalIgnoreCase)
         );
+
         if (target is null)
-            AppendLog($"Profile '{profileId}' not found.");
+            AppendLog($"Saved account '{savedAccountId}' not found.");
+
         return target;
     }
 
-    private bool IsAlreadyActive(ProfileInfo target)
+    private bool IsAlreadyActive(SavedAccountSummary target)
     {
-        if (!target.Id.Equals(CurrentProfileId, StringComparison.OrdinalIgnoreCase))
+        if (!target.Id.Equals(CurrentSavedAccountId, StringComparison.OrdinalIgnoreCase))
             return false;
 
-        AppendLog($"'{target.DisplayName}' is already active.");
         return true;
     }
 
-    /// <returns>True if WoW is running and the operation should be aborted.</returns>
-    private bool GuardWowRunning(string reason)
+    private bool GuardWowRunning(string message)
     {
-        if (!_processMonitor.IsWowRunning())
+        if (!IsWowRunning)
             return false;
 
-        AppendLog($"ERROR: WoW is running. {reason}");
-        _dialogService.ShowWarning($"WoW is currently running!\n{reason}", "HearthSwing");
+        AppendLog(message);
         return true;
-    }
-
-    private static string? SanitizeProfileName(string? raw)
-    {
-        var name = raw?.Trim();
-        if (string.IsNullOrEmpty(name))
-            return null;
-
-        foreach (var c in Path.GetInvalidFileNameChars())
-            name = name.Replace(c, '_');
-
-        return name;
     }
 
     private void StartUnlockCountdown()
@@ -553,49 +553,56 @@ public partial class MainViewModel : ObservableObject
 
     private async Task HandleSaveOnExitAsync()
     {
-        var profileId = CurrentProfileId;
-        if (string.IsNullOrEmpty(profileId))
+        var activeSavedAccount = _savedAccountCatalog.GetActiveAccount();
+        if (activeSavedAccount is null)
             return;
+
+        var liveAccount = TryGetLiveAccount(activeSavedAccount.AccountName);
+        if (liveAccount is null)
+        {
+            AppendLog(
+                $"Warning: Active live account '{activeSavedAccount.AccountName}' was not found — skipping save."
+            );
+            return;
+        }
+
+        var savedAccount = _savedAccountCatalog.GetById(activeSavedAccount.SavedAccountId);
+        var diff = _accountSnapshotDiffService.BuildDiff(liveAccount, savedAccount);
+        if (!diff.IsNewAccount && !diff.HasChanges)
+        {
+            AppendLog(
+                $"No changes detected for account '{liveAccount.AccountName}' — skipping save."
+            );
+            return;
+        }
 
         if (AutoSaveOnExit)
         {
-            await RunTrackedArchiveAsync(
-                _orchestrator.SaveWithVersioningAsync(profileId, VersioningEnabled)
+            var saveTask = _orchestrator.SaveAccountAsync(
+                liveAccount,
+                BuildSavePlanFromDiff(diff),
+                VersioningEnabled
             );
+            await RunTrackedArchiveAsync(saveTask);
+
             _uiDispatcher.Invoke(() =>
             {
                 RefreshState();
-                StatusText = $"Profile '{profileId}' auto-saved.";
+                StatusText = $"Account '{liveAccount.AccountName}' auto-saved.";
             });
             return;
         }
 
-        var tcs = new TaskCompletionSource<bool>(
-            TaskCreationOptions.RunContinuationsAsynchronously
-        );
-        _savePromptTcs = tcs;
         _uiDispatcher.Invoke(() =>
         {
-            SavePromptProfileName = profileId;
-            IsSavePromptVisible = true;
+            OpenSaveSelection(
+                activeSavedAccount.AccountName,
+                $"Save Account — {activeSavedAccount.AccountName}"
+            );
+            StatusText = $"Review changes for account '{activeSavedAccount.AccountName}'.";
         });
 
-        var accepted = await tcs.Task;
-        if (accepted)
-        {
-            await RunTrackedArchiveAsync(
-                _orchestrator.SaveWithVersioningAsync(profileId, VersioningEnabled)
-            );
-            _uiDispatcher.Invoke(() =>
-            {
-                RefreshState();
-                StatusText = $"Profile '{profileId}' saved.";
-            });
-        }
-        else
-        {
-            AppendLog("Save skipped by user.");
-        }
+        AppendLog($"Review changes for account '{activeSavedAccount.AccountName}'.");
     }
 
     [RelayCommand]
@@ -607,15 +614,15 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        var profileId = CurrentProfileId;
-        if (string.IsNullOrEmpty(profileId))
+        var savedAccountId = CurrentSavedAccountId;
+        if (string.IsNullOrEmpty(savedAccountId))
         {
-            AppendLog("No active profile — nothing to show.");
+            AppendLog("No active saved account — nothing to show.");
             return;
         }
 
         Versions.Clear();
-        foreach (var v in _versionService.GetVersions(profileId))
+        foreach (var v in _versionService.GetVersions(savedAccountId))
             Versions.Add(v);
 
         IsVersionHistoryVisible = true;
@@ -663,17 +670,47 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void AcceptSavePrompt()
+    private async Task ConfirmSaveSelectionAsync()
     {
-        IsSavePromptVisible = false;
-        _savePromptTcs?.TrySetResult(true);
+        if (_pendingLiveAccount is null)
+            return;
+
+        if (!CanConfirmSaveSelection)
+        {
+            AppendLog($"No account changes selected for '{_pendingLiveAccount.AccountName}'.");
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            var saveTask = _orchestrator.SaveAccountAsync(
+                _pendingLiveAccount,
+                BuildCurrentSavePlan(),
+                VersioningEnabled
+            );
+            await RunTrackedArchiveAsync(saveTask);
+            var savedAccount = await saveTask;
+
+            IsSaveSelectionVisible = false;
+            RefreshState();
+            StatusText =
+                $"Account '{savedAccount?.AccountName ?? _pendingLiveAccount.AccountName}' saved.";
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"ERROR: {ex.Message}");
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     [RelayCommand]
-    private void SkipSavePrompt()
+    private void CancelSaveSelection()
     {
-        IsSavePromptVisible = false;
-        _savePromptTcs?.TrySetResult(false);
+        IsSaveSelectionVisible = false;
     }
 
     private async Task RunTrackedArchiveAsync(Task archiveTask)
@@ -733,5 +770,225 @@ public partial class MainViewModel : ObservableObject
         var timestamp = DateTime.Now.ToString("HH:mm:ss");
         var line = $"[{timestamp}] {message}\n";
         _uiDispatcher.Invoke(() => LogText += line);
+    }
+
+    partial void OnSelectedLiveAccountNameChanged(string? value)
+    {
+        BuildSaveSelectionForSelectedAccount();
+    }
+
+    partial void OnSaveAccountSettingsSelectedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanConfirmSaveSelection));
+    }
+
+    private void UpdateLiveAccounts(WowInstallation installation)
+    {
+        LiveAccounts.Clear();
+        foreach (var account in installation.Accounts)
+            LiveAccounts.Add(account.AccountName);
+
+        DetectedLiveAccountsSummary = installation.Accounts.Count switch
+        {
+            0 => "No live accounts detected.",
+            1 => $"Live account detected: {installation.Accounts[0].AccountName}",
+            _ =>
+                $"Live accounts detected: {string.Join(", ", installation.Accounts.Select(account => account.AccountName))}",
+        };
+    }
+
+    private void OpenSaveSelection(string? preselectedAccountName = null, string? title = null)
+    {
+        if (!EnsureInstallation())
+            return;
+
+        if (_installation is null || _installation.Accounts.Count == 0)
+        {
+            AppendLog("No live WoW accounts were found in WTF.");
+            return;
+        }
+
+        SaveSelectionTitle = title ?? "Save Account";
+        IsSaveSelectionVisible = true;
+
+        var targetAccountName =
+            !string.IsNullOrWhiteSpace(preselectedAccountName) ? preselectedAccountName
+            : _installation.Accounts.Count == 1 ? _installation.Accounts[0].AccountName
+            : null;
+
+        SelectedLiveAccountName = targetAccountName;
+        if (targetAccountName is null)
+            ResetPendingSaveSelection("Choose a live account to save.");
+    }
+
+    private bool EnsureInstallation()
+    {
+        if (string.IsNullOrWhiteSpace(GamePath))
+        {
+            AppendLog("ERROR: Game path is not set.");
+            return false;
+        }
+
+        try
+        {
+            _installation = _wtfInspector.Inspect(GamePath);
+            UpdateLiveAccounts(_installation);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _installation = null;
+            LiveAccounts.Clear();
+            DetectedLiveAccountsSummary = "No live accounts detected.";
+            AppendLog($"Warning: WTF inspection failed — {ex.Message}");
+            return false;
+        }
+    }
+
+    private WowAccount? TryGetLiveAccount(string accountName)
+    {
+        if (!EnsureInstallation() || _installation is null)
+            return null;
+
+        return _installation.Accounts.FirstOrDefault(account =>
+            account.AccountName.Equals(accountName, StringComparison.OrdinalIgnoreCase)
+        );
+    }
+
+    private void BuildSaveSelectionForSelectedAccount()
+    {
+        SaveRealms.Clear();
+        _pendingLiveAccount = null;
+        IsNewSaveAccount = false;
+        SaveAccountSettingsSelected = false;
+        HasPendingCharacterNodes = false;
+
+        if (_installation is null || string.IsNullOrWhiteSpace(SelectedLiveAccountName))
+        {
+            ResetPendingSaveSelection("Choose a live account to save.");
+            return;
+        }
+
+        var liveAccount = _installation.Accounts.FirstOrDefault(account =>
+            account.AccountName.Equals(SelectedLiveAccountName, StringComparison.OrdinalIgnoreCase)
+        );
+        if (liveAccount is null)
+        {
+            ResetPendingSaveSelection("Choose a live account to save.");
+            return;
+        }
+
+        _pendingLiveAccount = liveAccount;
+        var savedAccount = _savedAccountCatalog.FindByAccountName(liveAccount.AccountName);
+        var diff = _accountSnapshotDiffService.BuildDiff(liveAccount, savedAccount);
+
+        IsNewSaveAccount = diff.IsNewAccount;
+        SaveAccountSettingsSelected =
+            diff.IsNewAccount || diff.AccountSettingsStatus != AccountSnapshotDiffStatus.Unchanged;
+
+        if (diff.IsNewAccount)
+        {
+            SaveSelectionMessage =
+                $"Account '{liveAccount.AccountName}' has not been saved yet. Confirm to save the entire account snapshot.";
+            OnPropertyChanged(nameof(CanConfirmSaveSelection));
+            return;
+        }
+
+        foreach (var realm in diff.Realms)
+        {
+            var realmViewModel = new RealmSaveSelectionViewModel(realm.RealmName, realm.Status);
+
+            foreach (var character in realm.Characters)
+            {
+                realmViewModel.Characters.Add(
+                    new CharacterSaveSelectionViewModel(
+                        character.RealmName,
+                        character.CharacterName,
+                        character.Status,
+                        isSelected: character.Status != AccountSnapshotDiffStatus.Unchanged,
+                        selectionChanged: OnPendingSaveSelectionChanged
+                    )
+                );
+            }
+
+            SaveRealms.Add(realmViewModel);
+        }
+
+        HasPendingCharacterNodes = SaveRealms.Count > 0;
+        SaveSelectionMessage = diff.HasChanges
+            ? $"Review changed account settings and characters for '{liveAccount.AccountName}'."
+            : $"No changes detected for '{liveAccount.AccountName}' since the last save.";
+
+        OnPropertyChanged(nameof(CanConfirmSaveSelection));
+    }
+
+    private void ResetPendingSaveSelection(string message)
+    {
+        SaveSelectionMessage = message;
+        OnPropertyChanged(nameof(CanConfirmSaveSelection));
+    }
+
+    private void OnPendingSaveSelectionChanged()
+    {
+        OnPropertyChanged(nameof(CanConfirmSaveSelection));
+    }
+
+    private AccountSavePlan BuildCurrentSavePlan()
+    {
+        if (_pendingLiveAccount is null)
+            throw new InvalidOperationException("No live account is selected for saving.");
+
+        if (IsNewSaveAccount)
+        {
+            return new AccountSavePlan
+            {
+                AccountName = _pendingLiveAccount.AccountName,
+                SaveAccountSettings = true,
+            };
+        }
+
+        var selectedCharacters = SaveRealms
+            .SelectMany(realm => realm.Characters)
+            .Where(character => character.IsSelected)
+            .Select(character => new CharacterSaveSelection
+            {
+                RealmName = character.RealmName,
+                CharacterName = character.CharacterName,
+            })
+            .ToList();
+
+        return new AccountSavePlan
+        {
+            AccountName = _pendingLiveAccount.AccountName,
+            SaveAccountSettings = SaveAccountSettingsSelected,
+            SelectedCharacters = selectedCharacters,
+        };
+    }
+
+    private static AccountSavePlan BuildSavePlanFromDiff(AccountSnapshotDiff diff)
+    {
+        if (diff.IsNewAccount)
+        {
+            return new AccountSavePlan
+            {
+                AccountName = diff.AccountName,
+                SaveAccountSettings = true,
+            };
+        }
+
+        return new AccountSavePlan
+        {
+            AccountName = diff.AccountName,
+            SaveAccountSettings = diff.AccountSettingsStatus != AccountSnapshotDiffStatus.Unchanged,
+            SelectedCharacters = diff
+                .Realms.SelectMany(realm => realm.Characters)
+                .Where(character => character.Status != AccountSnapshotDiffStatus.Unchanged)
+                .Select(character => new CharacterSaveSelection
+                {
+                    RealmName = character.RealmName,
+                    CharacterName = character.CharacterName,
+                })
+                .ToList(),
+        };
     }
 }

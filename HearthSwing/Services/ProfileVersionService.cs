@@ -1,8 +1,6 @@
 using System.Globalization;
 using System.IO;
-using System.Text.Json;
 using HearthSwing.Models;
-using HearthSwing.Models.Profiles;
 using Microsoft.Extensions.Logging;
 
 namespace HearthSwing.Services;
@@ -13,11 +11,6 @@ public sealed class ProfileVersionService : IProfileVersionService
     private const string TimestampFormat = "yyyyMMdd_HHmmss";
     private const string ArchiveExtension = ".tar.gz";
     private const string MetaExtension = ".meta.json";
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
-    };
 
     private readonly IFileSystem _fs;
     private readonly ISettingsService _settings;
@@ -39,75 +32,43 @@ public sealed class ProfileVersionService : IProfileVersionService
 
     private string VersionsRoot => Path.Combine(_settings.Current.ProfilesPath, VersionsFolderName);
 
-    public async Task CreateVersionAsync(string profileId)
+    public async Task CreateVersionAsync(string savedAccountId)
     {
-        var profilePath = Path.Combine(_settings.Current.ProfilesPath, profileId);
-        if (!_fs.DirectoryExists(profilePath))
-        {
-            _logger.LogWarning("Profile folder '{ProfileId}' not found — skipping version.", profileId);
-            return;
-        }
-
-        var versionId = DateTime.Now.ToString(TimestampFormat);
-        var profileVersionsDir = Path.Combine(VersionsRoot, profileId);
-        _fs.CreateDirectory(profileVersionsDir);
-
-        var archivePath = Path.Combine(profileVersionsDir, versionId + ArchiveExtension);
-        await _archive.CompressDirectoryAsync(profilePath, archivePath);
-        _logger.LogInformation("Version '{VersionId}' created for profile '{ProfileId}'.", versionId, profileId);
-
-        PruneVersions(profileId, _settings.Current.MaxVersionsPerProfile);
-    }
-
-    public async Task CreateVersionAsync(ProfileDescriptor descriptor)
-    {
-        if (!_fs.DirectoryExists(descriptor.SnapshotPath))
+        var savedAccountPath = Path.Combine(_settings.Current.ProfilesPath, savedAccountId);
+        if (!_fs.DirectoryExists(savedAccountPath))
         {
             _logger.LogWarning(
-                "Snapshot folder '{SnapshotPath}' not found — skipping version.",
-                descriptor.SnapshotPath
+                "Saved account folder '{SavedAccountId}' not found — skipping version.",
+                savedAccountId
             );
             return;
         }
 
         var versionId = DateTime.Now.ToString(TimestampFormat);
-        var versionDir = Path.Combine(VersionsRoot, descriptor.Id);
-        _fs.CreateDirectory(versionDir);
+        var savedAccountVersionsDir = Path.Combine(VersionsRoot, savedAccountId);
+        _fs.CreateDirectory(savedAccountVersionsDir);
 
-        var archivePath = Path.Combine(versionDir, versionId + ArchiveExtension);
-        await _archive.CompressDirectoryAsync(descriptor.SnapshotPath, archivePath);
-
-        var meta = new VersionMeta
-        {
-            LocalProfileId = descriptor.LocalProfileId,
-            Granularity = descriptor.Granularity,
-            AccountName = descriptor.AccountName,
-            RealmName = descriptor.RealmName,
-            CharacterName = descriptor.CharacterName,
-        };
-        var metaPath = Path.Combine(versionDir, versionId + MetaExtension);
-        var json = JsonSerializer.Serialize(meta, JsonOptions);
-        _fs.WriteAllText(metaPath, json);
-
+        var archivePath = Path.Combine(savedAccountVersionsDir, versionId + ArchiveExtension);
+        await _archive.CompressDirectoryAsync(savedAccountPath, archivePath);
         _logger.LogInformation(
-            "Version '{VersionId}' created for scope '{DescriptorId}'.",
+            "Version '{VersionId}' created for saved account '{SavedAccountId}'.",
             versionId,
-            descriptor.Id
+            savedAccountId
         );
 
-        PruneVersionsByDescriptor(descriptor.Id, _settings.Current.MaxVersionsPerProfile);
+        PruneVersions(savedAccountId, _settings.Current.MaxVersionsPerProfile);
     }
 
-    public List<ProfileVersion> GetVersions(string profileId)
+    public List<ProfileVersion> GetVersions(string savedAccountId)
     {
-        var profileVersionsDir = Path.Combine(VersionsRoot, profileId);
-        if (!_fs.DirectoryExists(profileVersionsDir))
+        var savedAccountVersionsDir = Path.Combine(VersionsRoot, savedAccountId);
+        if (!_fs.DirectoryExists(savedAccountVersionsDir))
             return [];
 
         var versions = new List<ProfileVersion>();
         foreach (
             var file in _fs.GetFiles(
-                profileVersionsDir,
+                savedAccountVersionsDir,
                 "*" + ArchiveExtension,
                 SearchOption.TopDirectoryOnly
             )
@@ -128,7 +89,7 @@ public sealed class ProfileVersionService : IProfileVersionService
                     new ProfileVersion
                     {
                         VersionId = versionId,
-                        ProfileId = profileId,
+                        ProfileId = savedAccountId,
                         CreatedAt = createdAt,
                         ArchivePath = file,
                     }
@@ -139,82 +100,20 @@ public sealed class ProfileVersionService : IProfileVersionService
         return versions.OrderByDescending(v => v.CreatedAt).ToList();
     }
 
-    public List<ProfileVersion> GetVersions(ProfileDescriptor descriptor)
-    {
-        var versionDir = Path.Combine(VersionsRoot, descriptor.Id);
-        if (!_fs.DirectoryExists(versionDir))
-            return [];
-
-        var versions = new List<ProfileVersion>();
-        foreach (
-            var file in _fs.GetFiles(versionDir, "*" + ArchiveExtension, SearchOption.TopDirectoryOnly)
-        )
-        {
-            var versionId = Path.GetFileName(file)[..^ArchiveExtension.Length];
-            if (
-                !DateTime.TryParseExact(
-                    versionId,
-                    TimestampFormat,
-                    CultureInfo.InvariantCulture,
-                    DateTimeStyles.None,
-                    out var createdAt
-                )
-            )
-                continue;
-
-            var metaPath = Path.Combine(versionDir, versionId + MetaExtension);
-            VersionMeta? meta = null;
-            if (_fs.FileExists(metaPath))
-            {
-                try
-                {
-                    var json = _fs.ReadAllText(metaPath);
-                    meta = JsonSerializer.Deserialize<VersionMeta>(json, JsonOptions);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(
-                        ex,
-                        "Failed to read meta for version '{VersionId}' of '{DescriptorId}'.",
-                        versionId,
-                        descriptor.Id
-                    );
-                }
-            }
-
-            versions.Add(
-                new ProfileVersion
-                {
-                    VersionId = versionId,
-                    ProfileId = descriptor.Id,
-                    CreatedAt = createdAt,
-                    ArchivePath = file,
-                    LocalProfileId = meta?.LocalProfileId,
-                    Granularity = meta?.Granularity ?? ProfileGranularity.FullWtf,
-                    AccountName = meta?.AccountName,
-                    RealmName = meta?.RealmName,
-                    CharacterName = meta?.CharacterName,
-                }
-            );
-        }
-
-        return versions.OrderByDescending(v => v.CreatedAt).ToList();
-    }
-
     public async Task RestoreVersionAsync(ProfileVersion version)
     {
-        var profilePath = Path.Combine(_settings.Current.ProfilesPath, version.ProfileId);
+        var savedAccountPath = Path.Combine(_settings.Current.ProfilesPath, version.ProfileId);
 
-        if (_fs.DirectoryExists(profilePath))
+        if (_fs.DirectoryExists(savedAccountPath))
         {
-            ClearReadOnlyAttributes(profilePath);
-            _fs.DeleteDirectory(profilePath, recursive: true);
+            ClearReadOnlyAttributes(savedAccountPath);
+            _fs.DeleteDirectory(savedAccountPath, recursive: true);
         }
 
-        _fs.CreateDirectory(profilePath);
-        await _archive.ExtractToDirectoryAsync(version.ArchivePath, profilePath);
+        _fs.CreateDirectory(savedAccountPath);
+        await _archive.ExtractToDirectoryAsync(version.ArchivePath, savedAccountPath);
         _logger.LogInformation(
-            "Profile '{ProfileId}' restored from version '{VersionId}'.",
+            "Saved account '{SavedAccountId}' restored from version '{VersionId}'.",
             version.ProfileId,
             version.VersionId
         );
@@ -231,15 +130,15 @@ public sealed class ProfileVersionService : IProfileVersionService
             _fs.DeleteFile(metaPath);
 
         _logger.LogInformation(
-            "Version '{VersionId}' deleted for profile '{ProfileId}'.",
+            "Version '{VersionId}' deleted for saved account '{SavedAccountId}'.",
             version.VersionId,
             version.ProfileId
         );
     }
 
-    public void PruneVersions(string profileId, int maxVersions)
+    public void PruneVersions(string savedAccountId, int maxVersions)
     {
-        var versions = GetVersions(profileId);
+        var versions = GetVersions(savedAccountId);
         if (versions.Count <= maxVersions)
             return;
 
@@ -248,39 +147,10 @@ public sealed class ProfileVersionService : IProfileVersionService
             DeleteVersion(version);
 
         _logger.LogInformation(
-            "Pruned {Count} old version(s) for profile '{ProfileId}'.",
+            "Pruned {Count} old version(s) for saved account '{SavedAccountId}'.",
             toDelete.Count,
-            profileId
+            savedAccountId
         );
-    }
-
-    private void PruneVersionsByDescriptor(string descriptorId, int maxVersions)
-    {
-        var versionDir = Path.Combine(VersionsRoot, descriptorId);
-        if (!_fs.DirectoryExists(versionDir))
-            return;
-
-        var files = _fs
-            .GetFiles(versionDir, "*" + ArchiveExtension, SearchOption.TopDirectoryOnly)
-            .OrderByDescending(f => f)
-            .Skip(maxVersions)
-            .ToList();
-
-        foreach (var file in files)
-        {
-            if (_fs.FileExists(file))
-                _fs.DeleteFile(file);
-            var metaPath = Path.ChangeExtension(file, null) + MetaExtension;
-            if (_fs.FileExists(metaPath))
-                _fs.DeleteFile(metaPath);
-        }
-
-        if (files.Count > 0)
-            _logger.LogInformation(
-                "Pruned {Count} old version(s) for scope '{DescriptorId}'.",
-                files.Count,
-                descriptorId
-            );
     }
 
     private void ClearReadOnlyAttributes(string directory)
@@ -294,14 +164,5 @@ public sealed class ProfileVersionService : IProfileVersionService
             if ((attrs & FileAttributes.ReadOnly) != 0)
                 _fs.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
         }
-    }
-
-    private sealed class VersionMeta
-    {
-        public string? LocalProfileId { get; set; }
-        public ProfileGranularity Granularity { get; set; }
-        public string? AccountName { get; set; }
-        public string? RealmName { get; set; }
-        public string? CharacterName { get; set; }
     }
 }
