@@ -154,6 +154,38 @@ public class MainViewModelTests
     }
 
     [Test]
+    public void Constructor_WhenSavedAccountStorageIsUnsupported_ShowsWarningAndKeepsAppUsable()
+    {
+        // Arrange
+        _savedAccountCatalog.GetActiveAccount().Returns((ActiveAccountState?)null);
+        _savedAccountCatalog
+            .When(catalog => catalog.DiscoverAccounts())
+            .Do(_ =>
+                throw new InvalidOperationException(
+                    "Unsupported saved-account storage at 'C:\\Profiles\\donky'. Expected metadata file 'account.json'."
+                )
+            );
+
+        // Act
+        var sut = Should.NotThrow(CreateSut);
+
+        // Assert
+        sut.CurrentAccountName.ShouldBe("None");
+        sut.CurrentSavedAccountId.ShouldBeEmpty();
+        sut.SavedAccounts.ShouldBeEmpty();
+        _dialogService
+            .Received()
+            .ShowWarning(
+                Arg.Is<string>(message =>
+                    message.Contains("Unsupported saved-account storage")
+                    && message.Contains("Choose an empty Saved Accounts Path")
+                ),
+                "Saved Accounts Path Error"
+            );
+        sut.LogText.ShouldContain("Unsupported saved-account storage");
+    }
+
+    [Test]
     public void SwitchSavedAccount_WhenCalled_DelegatesToOrchestrator()
     {
         // Arrange

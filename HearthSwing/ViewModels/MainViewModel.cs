@@ -201,22 +201,9 @@ public partial class MainViewModel : ObservableObject
 
     private void RefreshState()
     {
-        var activeSavedAccountState = _savedAccountCatalog.GetActiveAccount();
-        var activeSavedAccount = activeSavedAccountState is null
-            ? null
-            : _savedAccountCatalog.GetById(activeSavedAccountState.SavedAccountId);
-
-        CurrentAccountName =
-            activeSavedAccount?.AccountName ?? activeSavedAccountState?.AccountName ?? "None";
-        CurrentSavedAccountId =
-            activeSavedAccount?.Id ?? activeSavedAccountState?.SavedAccountId ?? string.Empty;
-        NewProfileName = activeSavedAccount?.AccountName ?? string.Empty;
+        RefreshSavedAccountState();
         IsWowRunning = _processMonitor.IsWowRunning();
         IsCacheLocked = _orchestrator.IsCacheLocked;
-
-        SavedAccounts.Clear();
-        foreach (var account in _savedAccountCatalog.DiscoverAccounts())
-            SavedAccounts.Add(account);
 
         if (!string.IsNullOrWhiteSpace(GamePath))
         {
@@ -239,6 +226,45 @@ public partial class MainViewModel : ObservableObject
             _installation = null;
             LiveAccounts.Clear();
             DetectedLiveAccountsSummary = "No live accounts detected.";
+        }
+    }
+
+    private void RefreshSavedAccountState()
+    {
+        SavedAccounts.Clear();
+
+        try
+        {
+            var activeSavedAccountState = _savedAccountCatalog.GetActiveAccount();
+            var discoveredAccounts = _savedAccountCatalog.DiscoverAccounts();
+            var activeSavedAccount = activeSavedAccountState is null
+                ? null
+                : discoveredAccounts.FirstOrDefault(account =>
+                    account.Id.Equals(
+                        activeSavedAccountState.SavedAccountId,
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                );
+
+            CurrentAccountName =
+                activeSavedAccount?.AccountName ?? activeSavedAccountState?.AccountName ?? "None";
+            CurrentSavedAccountId =
+                activeSavedAccount?.Id ?? activeSavedAccountState?.SavedAccountId ?? string.Empty;
+            NewProfileName = activeSavedAccount?.AccountName ?? string.Empty;
+
+            foreach (var account in discoveredAccounts)
+                SavedAccounts.Add(account);
+        }
+        catch (InvalidOperationException ex)
+        {
+            CurrentAccountName = "None";
+            CurrentSavedAccountId = string.Empty;
+            NewProfileName = string.Empty;
+            AppendLog($"Warning: {ex.Message}");
+            _dialogService.ShowWarning(
+                $"{ex.Message}\n\nChoose an empty Saved Accounts Path or migrate/remove the legacy folders before using this storage root.",
+                "Saved Accounts Path Error"
+            );
         }
     }
 
