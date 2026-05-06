@@ -14,7 +14,7 @@
     <Version>1.0.0</Version>
     <Copyright>Copyright \u00A9 2026 CoffeeNova</Copyright>
     <Company>CoffeeNova</Company>
-    <Description>WoW Classic Anniversary profile switcher</Description>
+    <Description>WoW Classic Anniversary account switcher</Description>
     <SatelliteResourceLanguages>en;ru</SatelliteResourceLanguages>
     <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>

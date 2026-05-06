@@ -38,7 +38,11 @@ public partial class App : Application
         services.AddSingleton<IFileSystem, FileSystem>();
         services.AddSingleton<IProcessManager, SystemProcessManager>();
         services.AddSingleton<ISettingsService, SettingsService>();
-        services.AddSingleton<IProfileManager, ProfileManager>();
+        services.AddSingleton<IAccountSnapshotLayout, AccountSnapshotLayout>();
+        services.AddSingleton<IAccountSnapshotDiffService, AccountSnapshotDiffService>();
+        services.AddSingleton<IAccountSnapshotSaveService, AccountSnapshotSaveService>();
+        services.AddSingleton<IAccountSwitchService, AccountSwitchService>();
+        services.AddSingleton<ISavedAccountCatalog, SavedAccountCatalog>();
         services.AddSingleton<IWtfInspector, WtfInspector>();
         services.AddSingleton<ICacheProtector, CacheProtector>();
         services.AddSingleton<IProcessMonitor, ProcessMonitor>();

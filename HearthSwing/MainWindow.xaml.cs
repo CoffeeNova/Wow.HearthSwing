@@ -2,6 +2,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using HearthSwing.Models.Accounts;
 using HearthSwing.Models;
 using HearthSwing.ViewModels;
 
@@ -56,8 +57,8 @@ public partial class MainWindow : Window
     {
         if (
             e.PropertyName
-            is nameof(MainViewModel.CurrentProfileId)
-                or nameof(MainViewModel.Profiles)
+            is nameof(MainViewModel.CurrentSavedAccountId)
+                or nameof(MainViewModel.SavedAccounts)
         )
             UpdateProfileButtons();
 
@@ -67,13 +68,11 @@ public partial class MainWindow : Window
 
     private void UpdateProfileButtons()
     {
-        // Walk the visual tree to find all generated profile buttons
-        var activeId = _vm.CurrentProfileId;
+        var activeId = _vm.CurrentSavedAccountId;
         var cardBg = (SolidColorBrush)FindResource("CardBg");
 
         ProfileIndicator.Foreground = GetAccentBrush(activeId);
 
-        // Update ItemsControl buttons
         for (var i = 0; i < ProfileButtons.Items.Count; i++)
         {
             var container = ProfileButtons.ItemContainerGenerator.ContainerFromIndex(i);
@@ -84,20 +83,20 @@ public partial class MainWindow : Window
             if (btn is null)
                 continue;
 
-            var profile = (ProfileInfo)ProfileButtons.Items[i];
+            var account = (SavedAccountSummary)ProfileButtons.Items[i];
             var accent = AccentBrushes[i % AccentBrushes.Length];
-            var isActive = profile.Id == activeId;
+            var isActive = account.Id == activeId;
 
             btn.Background = isActive ? accent : cardBg;
             btn.BorderBrush = accent;
         }
     }
 
-    private SolidColorBrush GetAccentBrush(string profileId)
+    private SolidColorBrush GetAccentBrush(string savedAccountId)
     {
-        for (var i = 0; i < _vm.Profiles.Count; i++)
+        for (var i = 0; i < _vm.SavedAccounts.Count; i++)
         {
-            if (_vm.Profiles[i].Id == profileId)
+            if (_vm.SavedAccounts[i].Id == savedAccountId)
                 return AccentBrushes[i % AccentBrushes.Length];
         }
         return (SolidColorBrush)FindResource("TextPrimary");

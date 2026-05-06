@@ -1,8 +1,9 @@
 using System.IO;
 using AutoFixture;
 using AutoFixture.AutoNSubstitute;
-using HearthSwing.Models;
+using HearthSwing.Models.Accounts;
 using HearthSwing.Services;
+using HearthSwing.Models.WoW;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 using Shouldly;
@@ -13,7 +14,9 @@ namespace HearthSwing.Tests.Services;
 public class SwitchingOrchestratorTests
 {
     private IFixture _fixture = null!;
-    private IProfileManager _profileManager = null!;
+    private ISavedAccountCatalog _savedAccountCatalog = null!;
+    private IAccountSnapshotSaveService _accountSnapshotSaveService = null!;
+    private IAccountSwitchService _accountSwitchService = null!;
     private ICacheProtector _cacheProtector = null!;
     private IProcessMonitor _processMonitor = null!;
     private IFileSystem _fileSystem = null!;
@@ -24,17 +27,20 @@ public class SwitchingOrchestratorTests
     public void SetUp()
     {
         _fixture = new Fixture().Customize(new AutoNSubstituteCustomization());
-        _profileManager = _fixture.Freeze<IProfileManager>();
+        _savedAccountCatalog = _fixture.Freeze<ISavedAccountCatalog>();
+        _accountSnapshotSaveService = _fixture.Freeze<IAccountSnapshotSaveService>();
+        _accountSwitchService = _fixture.Freeze<IAccountSwitchService>();
         _cacheProtector = _fixture.Freeze<ICacheProtector>();
         _processMonitor = _fixture.Freeze<IProcessMonitor>();
         _fileSystem = _fixture.Freeze<IFileSystem>();
         _versionService = _fixture.Freeze<IProfileVersionService>();
 
-        _profileManager.WtfPath.Returns(@"C:\Game\WTF");
-        _profileManager.ProfilesPath.Returns(@"C:\Profiles");
+        _accountSwitchService.WtfPath.Returns(@"C:\Game\WTF");
 
         _sut = new SwitchingOrchestrator(
-            _profileManager,
+            _savedAccountCatalog,
+            _accountSnapshotSaveService,
+            _accountSwitchService,
             _cacheProtector,
             _processMonitor,
             _fileSystem,
@@ -49,10 +55,18 @@ public class SwitchingOrchestratorTests
     }
 
     [Test]
-    public void SwitchTo_WhenCacheIsLocked_UnlocksBeforeSwitching()    {
+    public void SwitchToSavedAccount_WhenCacheIsLocked_UnlocksBeforeSwitching()
+    {
         // Arrange
         _cacheProtector.IsLocked.Returns(true);
-        var target = new ProfileInfo { Id = "alpha", FolderPath = @"C:\Profiles\alpha" };
+        var target = new SavedAccountSummary
+        {
+            Id = "alpha",
+            AccountName = "Alpha",
+            RootPath = @"C:\Profiles\alpha",
+            SnapshotPath = @"C:\Profiles\alpha\Account\Alpha",
+            CreatedAtUtc = DateTimeOffset.UtcNow,
+        };
 
         // Act
         _sut.SwitchTo(target);
@@ -61,23 +75,8 @@ public class SwitchingOrchestratorTests
         Received.InOrder(() =>
         {
             _cacheProtector.Unlock();
-            _profileManager.SwitchTo(target);
+            _accountSwitchService.SwitchTo(target);
         });
-    }
-
-    [Test]
-    public void SwitchTo_WhenCacheIsNotLocked_SwitchesWithoutUnlocking()
-    {
-        // Arrange
-        _cacheProtector.IsLocked.Returns(false);
-        var target = new ProfileInfo { Id = "beta", FolderPath = @"C:\Profiles\beta" };
-
-        // Act
-        _sut.SwitchTo(target);
-
-        // Assert
-        _cacheProtector.DidNotReceive().Unlock();
-        _profileManager.Received().SwitchTo(target);
     }
 
     [Test]
@@ -123,6 +122,24 @@ public class SwitchingOrchestratorTests
     }
 
     [Test]
+    public void LockForLaunch_WhenActiveSavedAccountExists_LocksOnlyThatAccount()
+    {
+        // Arrange
+        _fileSystem.DirectoryExists(@"C:\Game\WTF").Returns(true);
+        _cacheProtector.IsLocked.Returns(false);
+        _cacheProtector.ProtectedFileCount.Returns(2);
+        _savedAccountCatalog.GetActiveAccount()
+            .Returns(new ActiveAccountState { SavedAccountId = "alpha", AccountName = "Alpha" });
+
+        // Act
+        var result = _sut.LockForLaunch();
+
+        // Assert
+        _cacheProtector.Received().Lock(@"C:\Game\WTF", "Alpha");
+        result.ShouldBe(2);
+    }
+
+    [Test]
     public void LockForLaunch_WhenCacheAlreadyLocked_UnlocksFirstThenRelocks()
     {
         // Arrange
@@ -158,9 +175,6 @@ public class SwitchingOrchestratorTests
     [Test]
     public void ForceRestoreCache_CallsForceRestoreOnProtector()
     {
-        // Arrange
-        _profileManager.DetectCurrentProfile().Returns((ProfileInfo?)null);
-
         // Act
         _sut.ForceRestoreCache();
 
@@ -169,16 +183,27 @@ public class SwitchingOrchestratorTests
     }
 
     [Test]
-    public void ForceRestoreCache_SeedsMissingCacheFilesFromActiveProfile()
+    public void ForceRestoreCache_SeedsMissingCacheFilesFromActiveSavedAccount()
     {
         // Arrange
-        var profile = new ProfileInfo { Id = "hero", FolderPath = @"C:\Profiles\hero" };
-        _profileManager.DetectCurrentProfile().Returns(profile);
+        _savedAccountCatalog.GetActiveAccount()
+            .Returns(new ActiveAccountState { SavedAccountId = "hero", AccountName = "Test" });
+        _savedAccountCatalog.GetById("hero")
+            .Returns(
+                new SavedAccountSummary
+                {
+                    Id = "hero",
+                    AccountName = "Test",
+                    RootPath = @"C:\Profiles\hero",
+                    SnapshotPath = @"C:\Profiles\hero\Account\Test",
+                    CreatedAtUtc = DateTimeOffset.UtcNow,
+                }
+            );
         _fileSystem.DirectoryExists(@"C:\Profiles\hero").Returns(true);
 
         var profileCacheFile = @"C:\Profiles\hero\Account\Test\cache.md5";
         _cacheProtector
-            .CollectCacheFiles(@"C:\Profiles\hero")
+            .CollectCacheFiles(@"C:\Profiles\hero", "Test")
             .Returns([profileCacheFile]);
 
         var wtfTarget = @"C:\Game\WTF\Account\Test\cache.md5";
@@ -194,10 +219,30 @@ public class SwitchingOrchestratorTests
     }
 
     [Test]
-    public void RestoreFromSaved_UnlocksAndRestoresActiveProfile()
+    public void RestoreFromSaved_WhenNoActiveSavedAccount_LogsWarningAndReturns()
     {
         // Arrange
         _cacheProtector.IsLocked.Returns(true);
+        var logMessages = new List<string>();
+        _sut.Log += logMessages.Add;
+
+        // Act
+        _sut.RestoreFromSaved();
+
+        // Assert
+        _cacheProtector.Received().Unlock();
+        _accountSwitchService.DidNotReceive().RestoreActiveAccount();
+        logMessages.ShouldHaveSingleItem();
+        logMessages[0].ShouldContain("No active saved account");
+    }
+
+    [Test]
+    public void RestoreFromSaved_WhenActiveSavedAccountExists_UsesAccountSwitchService()
+    {
+        // Arrange
+        _cacheProtector.IsLocked.Returns(true);
+        _savedAccountCatalog.GetActiveAccount()
+            .Returns(new ActiveAccountState { SavedAccountId = "alpha", AccountName = "Alpha" });
 
         // Act
         _sut.RestoreFromSaved();
@@ -206,74 +251,106 @@ public class SwitchingOrchestratorTests
         Received.InOrder(() =>
         {
             _cacheProtector.Unlock();
-            _profileManager.RestoreActiveProfile();
+            _accountSwitchService.RestoreActiveAccount();
         });
     }
 
     [Test]
-    public async Task SaveWithVersioningAsync_WhenVersioningEnabled_CreatesVersionThenSaves()
+    public async Task SaveAccountAsync_WhenExistingSavedAccountAndVersioningEnabled_CreatesVersionThenSaves()
     {
         // Arrange
+        var liveAccount = new WowAccount
+        {
+            AccountName = "Alpha",
+            FolderPath = @"C:\Game\WTF\Account\Alpha",
+        };
+        var savePlan = new AccountSavePlan { AccountName = "Alpha", SaveAccountSettings = true };
+        var savedAccount = new SavedAccountSummary
+        {
+            Id = "alpha",
+            AccountName = "Alpha",
+            RootPath = @"C:\Profiles\alpha",
+            SnapshotPath = @"C:\Profiles\alpha\Account\Alpha",
+            CreatedAtUtc = DateTimeOffset.UtcNow,
+        };
+
         _fileSystem.DirectoryExists(@"C:\Game\WTF").Returns(true);
-        _fileSystem.DirectoryExists(@"C:\Profiles\hero").Returns(true);
-        _cacheProtector.IsLocked.Returns(false);
+        _fileSystem.DirectoryExists(savedAccount.RootPath).Returns(true);
+        _savedAccountCatalog.FindByAccountName("Alpha").Returns(savedAccount);
 
         // Act
-        await _sut.SaveWithVersioningAsync("hero", versioningEnabled: true);
+        await _sut.SaveAccountAsync(liveAccount, savePlan, versioningEnabled: true);
 
         // Assert
         Received.InOrder(() =>
         {
-            _ = _versionService.CreateVersionAsync("hero");
-            _profileManager.SaveCurrentAsProfile("hero");
+            _ = _versionService.CreateVersionAsync("alpha");
+            _accountSnapshotSaveService.Save(liveAccount, savePlan);
         });
     }
 
     [Test]
-    public async Task SaveWithVersioningAsync_WhenVersioningDisabled_SavesWithoutCreatingVersion()
+    public async Task SaveAccountAsync_WhenVersioningDisabled_SavesWithoutCreatingVersion()
     {
         // Arrange
+        var liveAccount = new WowAccount
+        {
+            AccountName = "Alpha",
+            FolderPath = @"C:\Game\WTF\Account\Alpha",
+        };
+        var savePlan = new AccountSavePlan { AccountName = "Alpha", SaveAccountSettings = true };
         _fileSystem.DirectoryExists(@"C:\Game\WTF").Returns(true);
-        _cacheProtector.IsLocked.Returns(false);
 
         // Act
-        await _sut.SaveWithVersioningAsync("hero", versioningEnabled: false);
+        await _sut.SaveAccountAsync(liveAccount, savePlan, versioningEnabled: false);
 
         // Assert
         await _versionService.DidNotReceive().CreateVersionAsync(Arg.Any<string>());
-        _profileManager.Received().SaveCurrentAsProfile("hero");
+        _accountSnapshotSaveService.Received().Save(liveAccount, savePlan);
     }
 
     [Test]
-    public async Task SaveWithVersioningAsync_WhenWtfFolderMissing_SkipsSaveAndLogs()
+    public async Task SaveAccountAsync_UnlocksCacheBeforeSaving()
     {
         // Arrange
+        var liveAccount = new WowAccount
+        {
+            AccountName = "Alpha",
+            FolderPath = @"C:\Game\WTF\Account\Alpha",
+        };
+        var savePlan = new AccountSavePlan { AccountName = "Alpha", SaveAccountSettings = true };
+        _fileSystem.DirectoryExists(@"C:\Game\WTF").Returns(true);
+        _cacheProtector.IsLocked.Returns(true);
+
+        // Act
+        await _sut.SaveAccountAsync(liveAccount, savePlan, versioningEnabled: false);
+
+        // Assert
+        _cacheProtector.Received().Unlock();
+    }
+
+    [Test]
+    public async Task SaveAccountAsync_WhenWtfMissing_SkipsAndLogs()
+    {
+        // Arrange
+        var liveAccount = new WowAccount
+        {
+            AccountName = "Alpha",
+            FolderPath = @"C:\Game\WTF\Account\Alpha",
+        };
+        var savePlan = new AccountSavePlan { AccountName = "Alpha", SaveAccountSettings = true };
         _fileSystem.DirectoryExists(@"C:\Game\WTF").Returns(false);
         var logMessages = new List<string>();
         _sut.Log += logMessages.Add;
 
         // Act
-        await _sut.SaveWithVersioningAsync("hero", versioningEnabled: true);
+        var result = await _sut.SaveAccountAsync(liveAccount, savePlan, versioningEnabled: true);
 
         // Assert
-        _profileManager.DidNotReceive().SaveCurrentAsProfile(Arg.Any<string>());
+        result.ShouldBeNull();
+        _accountSnapshotSaveService.DidNotReceive().Save(Arg.Any<WowAccount>(), Arg.Any<AccountSavePlan>());
         logMessages.ShouldHaveSingleItem();
         logMessages[0].ShouldContain("WTF folder not found");
-    }
-
-    [Test]
-    public async Task SaveWithVersioningAsync_UnlocksCacheBeforeSaving()
-    {
-        // Arrange
-        _fileSystem.DirectoryExists(@"C:\Game\WTF").Returns(true);
-        _fileSystem.DirectoryExists(@"C:\Profiles\hero").Returns(false);
-        _cacheProtector.IsLocked.Returns(true);
-
-        // Act
-        await _sut.SaveWithVersioningAsync("hero", versioningEnabled: false);
-
-        // Assert
-        _cacheProtector.Received().Unlock();
     }
 
     [Test]

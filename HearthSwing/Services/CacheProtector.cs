@@ -1,5 +1,4 @@
 using System.IO;
-using HearthSwing.Models.Profiles;
 using Microsoft.Extensions.Logging;
 
 namespace HearthSwing.Services;
@@ -29,11 +28,7 @@ public sealed class CacheProtector : ICacheProtector
     private bool _locked;
     private bool _disposed;
 
-    private string? _currentWtfPath;
-    private ProfileGranularity _currentGranularity;
     private string? _currentAccountName;
-    private string? _currentRealmName;
-    private string? _currentCharacterName;
 
     public CacheProtector(IFileSystem fileSystem, ILogger<CacheProtector> logger)
     {
@@ -44,42 +39,21 @@ public sealed class CacheProtector : ICacheProtector
     public bool IsLocked => _locked;
     public int ProtectedFileCount => _backups.Count;
 
-    public List<string> CollectCacheFiles(
-        string wtfPath,
-        ProfileGranularity granularity = ProfileGranularity.FullWtf,
-        string? accountName = null,
-        string? realmName = null,
-        string? characterName = null
-    )
+    public List<string> CollectCacheFiles(string wtfPath, string? accountName = null)
     {
         var result = new List<string>();
 
-        switch (granularity)
+        if (!string.IsNullOrWhiteSpace(accountName))
         {
-            case ProfileGranularity.PerAccount when accountName is not null:
-                CollectFromDirectory(
-                    Path.Combine(wtfPath, "Account", accountName),
-                    SearchOption.AllDirectories,
-                    result
-                );
-                break;
-
-            case ProfileGranularity.PerCharacter
-                when accountName is not null
-                    && realmName is not null
-                    && characterName is not null:
-                var accountPath = Path.Combine(wtfPath, "Account", accountName);
-                CollectFromDirectory(accountPath, SearchOption.TopDirectoryOnly, result);
-                CollectFromDirectory(
-                    Path.Combine(accountPath, realmName, characterName),
-                    SearchOption.AllDirectories,
-                    result
-                );
-                break;
-
-            default:
-                CollectFromDirectory(wtfPath, SearchOption.AllDirectories, result);
-                break;
+            CollectFromDirectory(
+                Path.Combine(wtfPath, "Account", accountName),
+                SearchOption.AllDirectories,
+                result
+            );
+        }
+        else
+        {
+            CollectFromDirectory(wtfPath, SearchOption.AllDirectories, result);
         }
 
         return result.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -90,13 +64,7 @@ public sealed class CacheProtector : ICacheProtector
     /// client considers local data newer than server data, sets read-only, and starts
     /// FileSystemWatchers to restore files if WoW overwrites them.
     /// </summary>
-    public void Lock(
-        string wtfPath,
-        ProfileGranularity granularity = ProfileGranularity.FullWtf,
-        string? accountName = null,
-        string? realmName = null,
-        string? characterName = null
-    )
+    public void Lock(string wtfPath, string? accountName = null)
     {
         if (_locked)
         {
@@ -104,19 +72,15 @@ public sealed class CacheProtector : ICacheProtector
             Unlock();
         }
 
-        _currentWtfPath = wtfPath;
-        _currentGranularity = granularity;
         _currentAccountName = accountName;
-        _currentRealmName = realmName;
-        _currentCharacterName = characterName;
 
-        var files = CollectCacheFiles(wtfPath, granularity, accountName, realmName, characterName);
+        var files = CollectCacheFiles(wtfPath, accountName);
         _backups.Clear();
 
         var now = DateTime.Now;
         BackupAndProtectFiles(files, now);
         TouchOldCompanions(wtfPath, now);
-        StartWatchers(wtfPath, granularity, accountName, realmName, characterName);
+        StartWatchers(wtfPath, accountName);
         _locked = true;
         _logger.LogInformation("Locked {Count} cache files (read-only + timestamps touched).", _backups.Count);
     }
@@ -150,13 +114,7 @@ public sealed class CacheProtector : ICacheProtector
         StopWatchers();
         var restored = RestoreAllFromBackups(now);
         TouchOldCompanions(wtfPath, now);
-        StartWatchers(
-            wtfPath,
-            _currentGranularity,
-            _currentAccountName,
-            _currentRealmName,
-            _currentCharacterName
-        );
+        StartWatchers(wtfPath, _currentAccountName);
         _locked = true;
 
         _logger.LogInformation(
@@ -177,11 +135,7 @@ public sealed class CacheProtector : ICacheProtector
 
     private void ClearScopeState()
     {
-        _currentWtfPath = null;
-        _currentGranularity = ProfileGranularity.FullWtf;
         _currentAccountName = null;
-        _currentRealmName = null;
-        _currentCharacterName = null;
     }
 
     private void CollectFromDirectory(string directory, SearchOption searchOption, List<string> result)
@@ -234,13 +188,7 @@ public sealed class CacheProtector : ICacheProtector
 
     private void SnapshotCurrentState(string wtfPath)
     {
-        var files = CollectCacheFiles(
-            wtfPath,
-            _currentGranularity,
-            _currentAccountName,
-            _currentRealmName,
-            _currentCharacterName
-        );
+        var files = CollectCacheFiles(wtfPath, _currentAccountName);
         foreach (var file in files)
         {
             try
@@ -275,41 +223,20 @@ public sealed class CacheProtector : ICacheProtector
         return restored;
     }
 
-    private void StartWatchers(
-        string wtfPath,
-        ProfileGranularity granularity,
-        string? accountName,
-        string? realmName,
-        string? characterName
-    )
+    private void StartWatchers(string wtfPath, string? accountName)
     {
-        foreach (var (dir, includeSubdirs) in BuildWatchTargets(wtfPath, granularity, accountName, realmName, characterName))
+        foreach (var (dir, includeSubdirs) in BuildWatchTargets(wtfPath, accountName))
             TryAddWatcher(dir, includeSubdirs);
     }
 
     private IEnumerable<(string directory, bool includeSubdirectories)> BuildWatchTargets(
         string wtfPath,
-        ProfileGranularity granularity,
-        string? accountName,
-        string? realmName,
-        string? characterName
+        string? accountName
     )
     {
-        return granularity switch
-        {
-            ProfileGranularity.PerAccount when accountName is not null =>
-                [(Path.Combine(wtfPath, "Account", accountName), true)],
-
-            ProfileGranularity.PerCharacter
-                when accountName is not null && realmName is not null && characterName is not null =>
-                [
-                    (Path.Combine(wtfPath, "Account", accountName), false),
-                    (Path.Combine(wtfPath, "Account", accountName, realmName, characterName), true),
-                ],
-
-            // FullWtf and any fallback: watch the entire WTF root
-            _ => [(wtfPath, true)],
-        };
+        return !string.IsNullOrWhiteSpace(accountName)
+            ? [(Path.Combine(wtfPath, "Account", accountName), true)]
+            : [(wtfPath, true)];
     }
 
     private void TryAddWatcher(string directory, bool includeSubdirectories)

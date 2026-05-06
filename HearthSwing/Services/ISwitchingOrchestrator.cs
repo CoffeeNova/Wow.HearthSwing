@@ -1,5 +1,5 @@
-using HearthSwing.Models;
-using HearthSwing.Models.Profiles;
+using HearthSwing.Models.Accounts;
+using HearthSwing.Models.WoW;
 
 namespace HearthSwing.Services;
 
@@ -11,9 +11,9 @@ public interface ISwitchingOrchestrator
     int ProtectedFileCount { get; }
 
     /// <summary>
-    /// Unlocks any active cache protection then delegates to <see cref="IProfileManager.SwitchTo"/>.
+    /// Unlocks any active cache protection then applies the selected saved account.
     /// </summary>
-    void SwitchTo(ProfileInfo target);
+    void SwitchTo(SavedAccountSummary target);
 
     /// <summary>
     /// Unlocks cache protection. No-op if cache is not currently locked.
@@ -40,21 +40,12 @@ public interface ISwitchingOrchestrator
     void RestoreFromSaved();
 
     /// <summary>
-    /// Optionally creates a version snapshot of the current legacy profile, then saves the
-    /// current WTF state under the given profile ID.
+    /// Optionally creates a version of the existing saved account, then persists the selected
+    /// slices of the live account into saved-account storage.
     /// </summary>
-    Task SaveWithVersioningAsync(
-        string profileId,
-        bool versioningEnabled,
-        CancellationToken ct = default
-    );
-
-    /// <summary>
-    /// Optionally creates a scope-aware version snapshot, then saves the current WTF state
-    /// using the given <paramref name="descriptor"/> (PerAccount or PerCharacter granularity).
-    /// </summary>
-    Task SaveWithVersioningAsync(
-        ProfileDescriptor descriptor,
+    Task<SavedAccountSummary?> SaveAccountAsync(
+        WowAccount liveAccount,
+        AccountSavePlan savePlan,
         bool versioningEnabled,
         CancellationToken ct = default
     );
