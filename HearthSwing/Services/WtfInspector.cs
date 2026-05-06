@@ -45,7 +45,7 @@ public sealed class WtfInspector : IWtfInspector
             return [];
         }
 
-        return GetChildDirectories(accountRoot)
+        return GetChildDirectories(accountRoot, SavedVariablesFolderName)
             .Select(accountPath => BuildAccount(accountPath))
             .ToList();
     }
@@ -99,7 +99,10 @@ public sealed class WtfInspector : IWtfInspector
             .ToList();
     }
 
-    private IEnumerable<string> GetChildDirectories(string path, params string[] ignoredDirectoryNames)
+    private IEnumerable<string> GetChildDirectories(
+        string path,
+        params string[] ignoredDirectoryNames
+    )
     {
         var ignoredNames = ignoredDirectoryNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
 

@@ -67,13 +67,15 @@ public class WtfInspectorTests
     public void Inspect_WhenWtfContainsAccountsRealmsAndCharacters_ReturnsTypedHierarchy()
     {
         // Arrange
-        _fileSystem.DirectoryExists(Arg.Any<string>())
+        _fileSystem
+            .DirectoryExists(Arg.Any<string>())
             .Returns(callInfo =>
             {
                 var path = callInfo.Arg<string>();
                 return path is @"C:\Game\WTF" or @"C:\Game\WTF\Account";
             });
-        _fileSystem.GetDirectories(Arg.Any<string>())
+        _fileSystem
+            .GetDirectories(Arg.Any<string>())
             .Returns(callInfo =>
             {
                 var path = callInfo.Arg<string>();
@@ -84,6 +86,7 @@ public class WtfInspectorTests
                     [
                         @"C:\Game\WTF\Account\Zulu",
                         @"C:\Game\WTF\Account\Alpha",
+                        @"C:\Game\WTF\Account\SavedVariables",
                         @"C:\Game\WTF\Account\.cache",
                     ],
                     @"C:\Game\WTF\Account\Alpha" =>
@@ -91,10 +94,7 @@ public class WtfInspectorTests
                         @"C:\Game\WTF\Account\Alpha\SavedVariables",
                         @"C:\Game\WTF\Account\Alpha\Firemaw",
                     ],
-                    @"C:\Game\WTF\Account\Zulu" =>
-                    [
-                        @"C:\Game\WTF\Account\Zulu\Pyrewood",
-                    ],
+                    @"C:\Game\WTF\Account\Zulu" => [@"C:\Game\WTF\Account\Zulu\Pyrewood"],
                     @"C:\Game\WTF\Account\Alpha\Firemaw" =>
                     [
                         @"C:\Game\WTF\Account\Alpha\Firemaw\CharacterB",

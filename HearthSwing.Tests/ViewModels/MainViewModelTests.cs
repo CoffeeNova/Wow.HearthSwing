@@ -399,6 +399,7 @@ public class MainViewModelTests
 
         var sut = CreateSut();
         await InvokePrivateAsync(sut, "SaveAccountAsync");
+        await InvokePrivateAsync(sut, "LoadSaveSelectionForSelectedAccountAsync", "Alpha");
 
         // Act
         await InvokePrivateAsync(sut, "ConfirmSaveSelectionAsync");
@@ -420,6 +421,131 @@ public class MainViewModelTests
             );
         sut.IsSaveSelectionVisible.ShouldBeFalse();
         sut.StatusText.ShouldBe("Account 'Alpha' saved.");
+    }
+
+    [Test]
+    public async Task LoadSaveSelectionForSelectedAccountAsync_SortsChangedRealmsAndCharactersFirst()
+    {
+        // Arrange
+        var savedAccount = BuildSavedAccount("alpha", "Alpha");
+        var liveAccount = new WowAccount
+        {
+            AccountName = "Alpha",
+            FolderPath = @"C:\Game\WTF\Account\Alpha",
+            Realms =
+            [
+                new WowRealm
+                {
+                    AccountName = "Alpha",
+                    RealmName = "Firemaw",
+                    FolderPath = @"C:\Game\WTF\Account\Alpha\Firemaw",
+                    Characters =
+                    [
+                        new WowCharacter
+                        {
+                            AccountName = "Alpha",
+                            RealmName = "Firemaw",
+                            CharacterName = "UnchangedCharacter",
+                            FolderPath = @"C:\Game\WTF\Account\Alpha\Firemaw\UnchangedCharacter",
+                        },
+                        new WowCharacter
+                        {
+                            AccountName = "Alpha",
+                            RealmName = "Firemaw",
+                            CharacterName = "ChangedCharacter",
+                            FolderPath = @"C:\Game\WTF\Account\Alpha\Firemaw\ChangedCharacter",
+                        },
+                    ],
+                },
+                new WowRealm
+                {
+                    AccountName = "Alpha",
+                    RealmName = "Pyrewood",
+                    FolderPath = @"C:\Game\WTF\Account\Alpha\Pyrewood",
+                    Characters =
+                    [
+                        new WowCharacter
+                        {
+                            AccountName = "Alpha",
+                            RealmName = "Pyrewood",
+                            CharacterName = "QuietCharacter",
+                            FolderPath = @"C:\Game\WTF\Account\Alpha\Pyrewood\QuietCharacter",
+                        },
+                    ],
+                },
+            ],
+        };
+        var diff = new AccountSnapshotDiff
+        {
+            AccountName = "Alpha",
+            AccountSettingsStatus = AccountSnapshotDiffStatus.Unchanged,
+            Realms =
+            [
+                new RealmSnapshotDiff
+                {
+                    RealmName = "Pyrewood",
+                    Status = AccountSnapshotDiffStatus.Unchanged,
+                    Characters =
+                    [
+                        new CharacterSnapshotDiff
+                        {
+                            RealmName = "Pyrewood",
+                            CharacterName = "QuietCharacter",
+                            FolderPath = @"C:\Game\WTF\Account\Alpha\Pyrewood\QuietCharacter",
+                            Status = AccountSnapshotDiffStatus.Unchanged,
+                        },
+                    ],
+                },
+                new RealmSnapshotDiff
+                {
+                    RealmName = "Firemaw",
+                    Status = AccountSnapshotDiffStatus.Modified,
+                    Characters =
+                    [
+                        new CharacterSnapshotDiff
+                        {
+                            RealmName = "Firemaw",
+                            CharacterName = "UnchangedCharacter",
+                            FolderPath = @"C:\Game\WTF\Account\Alpha\Firemaw\UnchangedCharacter",
+                            Status = AccountSnapshotDiffStatus.Unchanged,
+                        },
+                        new CharacterSnapshotDiff
+                        {
+                            RealmName = "Firemaw",
+                            CharacterName = "ChangedCharacter",
+                            FolderPath = @"C:\Game\WTF\Account\Alpha\Firemaw\ChangedCharacter",
+                            Status = AccountSnapshotDiffStatus.Modified,
+                        },
+                    ],
+                },
+            ],
+        };
+
+        _savedAccountCatalog.FindByAccountName("Alpha").Returns(savedAccount);
+        _wtfInspector
+            .Inspect(@"C:\Game")
+            .Returns(
+                new WowInstallation
+                {
+                    GamePath = @"C:\Game",
+                    WtfPath = @"C:\Game\WTF",
+                    Accounts = [liveAccount],
+                }
+            );
+        _accountSnapshotDiffService.BuildDiff(liveAccount, savedAccount).Returns(diff);
+
+        var sut = CreateSut();
+        await InvokePrivateAsync(sut, "SaveAccountAsync");
+
+        // Act
+        await InvokePrivateAsync(sut, "LoadSaveSelectionForSelectedAccountAsync", "Alpha");
+
+        // Assert
+        sut.SaveRealms.Count.ShouldBe(2);
+        sut.SaveRealms[0].RealmName.ShouldBe("Firemaw");
+        sut.SaveRealms[1].RealmName.ShouldBe("Pyrewood");
+        sut.SaveRealms[0].Characters[0].CharacterName.ShouldBe("ChangedCharacter");
+        sut.SaveRealms[0].Characters[1].CharacterName.ShouldBe("UnchangedCharacter");
     }
 
     [Test]
@@ -478,6 +604,7 @@ public class MainViewModelTests
 
         // Act
         await InvokePrivateAsync(sut, "MonitorWowAsync", CancellationToken.None);
+        await InvokePrivateAsync(sut, "LoadSaveSelectionForSelectedAccountAsync", "Alpha");
 
         // Assert
         await _orchestrator

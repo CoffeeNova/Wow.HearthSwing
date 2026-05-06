@@ -106,15 +106,28 @@ public sealed class SwitchingOrchestrator : ISwitchingOrchestrator
 
         UnlockCache();
 
-        var existingSavedAccount = _savedAccountCatalog.FindByAccountName(liveAccount.AccountName);
-        if (
-            versioningEnabled
-            && existingSavedAccount is not null
-            && _fs.DirectoryExists(existingSavedAccount.RootPath)
-        )
-            await _versionService.CreateVersionAsync(existingSavedAccount.Id);
+        return await Task.Run(
+            async () =>
+            {
+                ct.ThrowIfCancellationRequested();
 
-        return _accountSnapshotSaveService.Save(liveAccount, savePlan);
+                var existingSavedAccount = _savedAccountCatalog.FindByAccountName(
+                    liveAccount.AccountName
+                );
+                if (
+                    versioningEnabled
+                    && existingSavedAccount is not null
+                    && _fs.DirectoryExists(existingSavedAccount.RootPath)
+                )
+                {
+                    await _versionService.CreateVersionAsync(existingSavedAccount.Id);
+                }
+
+                ct.ThrowIfCancellationRequested();
+                return _accountSnapshotSaveService.Save(liveAccount, savePlan);
+            },
+            ct
+        );
     }
 
     public async Task WaitForWowExitAndCleanupAsync(int postExitDelayMs, CancellationToken ct)

@@ -27,6 +27,7 @@ public partial class MainViewModel : ObservableObject
     private WowAccount? _pendingLiveAccount;
     private CancellationTokenSource? _unlockCts;
     private CancellationTokenSource? _monitorCts;
+    private CancellationTokenSource? _saveSelectionLoadCts;
     private readonly object _archiveLock = new();
     private int _activeArchiveCount;
     private TaskCompletionSource? _archiveDoneTcs;
@@ -91,6 +92,10 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanConfirmSaveSelection))]
+    private bool _isLoadingSaveSelection;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanConfirmSaveSelection))]
     private bool _isNewSaveAccount;
 
     [ObservableProperty]
@@ -125,7 +130,11 @@ public partial class MainViewModel : ObservableObject
     private bool _isArchiving;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ArchivingDetailText))]
     private bool _isCloseBlockedByArchiving;
+
+    [ObservableProperty]
+    private string _archivingTitle = "Working...";
 
     public ObservableCollection<SavedAccountSummary> SavedAccounts { get; } = [];
 
@@ -136,12 +145,18 @@ public partial class MainViewModel : ObservableObject
     public ObservableCollection<ProfileVersion> Versions { get; } = [];
 
     public bool CanConfirmSaveSelection =>
-        _pendingLiveAccount is not null
+        !IsLoadingSaveSelection
+        && _pendingLiveAccount is not null
         && (
             IsNewSaveAccount
             || SaveAccountSettingsSelected
             || SaveRealms.Any(realm => realm.Characters.Any(character => character.IsSelected))
         );
+
+    public string ArchivingDetailText =>
+        IsCloseBlockedByArchiving
+            ? "Please wait. The application will close once the save is complete."
+            : "Please wait while HearthSwing completes the current operation.";
 
     public string AppVersion { get; } = GetVersion();
 
@@ -604,6 +619,7 @@ public partial class MainViewModel : ObservableObject
 
         if (AutoSaveOnExit)
         {
+            ArchivingTitle = $"Saving account '{liveAccount.AccountName}'...";
             var saveTask = _orchestrator.SaveAccountAsync(
                 liveAccount,
                 BuildSavePlanFromDiff(diff),
@@ -666,6 +682,7 @@ public partial class MainViewModel : ObservableObject
 
         try
         {
+            ArchivingTitle = $"Restoring version {version.DisplayName}...";
             await RunTrackedArchiveAsync(_versionService.RestoreVersionAsync(version));
             IsVersionHistoryVisible = false;
             RefreshState();
@@ -710,6 +727,7 @@ public partial class MainViewModel : ObservableObject
         IsBusy = true;
         try
         {
+            ArchivingTitle = $"Saving account '{_pendingLiveAccount.AccountName}'...";
             var saveTask = _orchestrator.SaveAccountAsync(
                 _pendingLiveAccount,
                 BuildCurrentSavePlan(),
@@ -736,6 +754,7 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void CancelSaveSelection()
     {
+        _saveSelectionLoadCts?.Cancel();
         IsSaveSelectionVisible = false;
     }
 
@@ -800,7 +819,7 @@ public partial class MainViewModel : ObservableObject
 
     partial void OnSelectedLiveAccountNameChanged(string? value)
     {
-        BuildSaveSelectionForSelectedAccount();
+        _ = LoadSaveSelectionForSelectedAccountAsync(value);
     }
 
     partial void OnSaveAccountSettingsSelectedChanged(bool value)
@@ -881,22 +900,29 @@ public partial class MainViewModel : ObservableObject
         );
     }
 
-    private void BuildSaveSelectionForSelectedAccount()
+    private async Task LoadSaveSelectionForSelectedAccountAsync(string? selectedLiveAccountName)
     {
+        _saveSelectionLoadCts?.Cancel();
+        _saveSelectionLoadCts?.Dispose();
+        var loadCts = new CancellationTokenSource();
+        _saveSelectionLoadCts = loadCts;
+
+        var ct = loadCts.Token;
+
         SaveRealms.Clear();
         _pendingLiveAccount = null;
         IsNewSaveAccount = false;
         SaveAccountSettingsSelected = false;
         HasPendingCharacterNodes = false;
 
-        if (_installation is null || string.IsNullOrWhiteSpace(SelectedLiveAccountName))
+        if (_installation is null || string.IsNullOrWhiteSpace(selectedLiveAccountName))
         {
             ResetPendingSaveSelection("Choose a live account to save.");
             return;
         }
 
         var liveAccount = _installation.Accounts.FirstOrDefault(account =>
-            account.AccountName.Equals(SelectedLiveAccountName, StringComparison.OrdinalIgnoreCase)
+            account.AccountName.Equals(selectedLiveAccountName, StringComparison.OrdinalIgnoreCase)
         );
         if (liveAccount is null)
         {
@@ -904,48 +930,71 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        _pendingLiveAccount = liveAccount;
-        var savedAccount = _savedAccountCatalog.FindByAccountName(liveAccount.AccountName);
-        var diff = _accountSnapshotDiffService.BuildDiff(liveAccount, savedAccount);
+        IsLoadingSaveSelection = true;
+        SaveSelectionMessage = $"Loading changes for '{liveAccount.AccountName}'...";
 
-        IsNewSaveAccount = diff.IsNewAccount;
-        SaveAccountSettingsSelected =
-            diff.IsNewAccount || diff.AccountSettingsStatus != AccountSnapshotDiffStatus.Unchanged;
-
-        if (diff.IsNewAccount)
+        try
         {
-            SaveSelectionMessage =
-                $"Account '{liveAccount.AccountName}' has not been saved yet. Confirm to save the entire account snapshot.";
-            OnPropertyChanged(nameof(CanConfirmSaveSelection));
-            return;
-        }
+            var diff = await BuildDiffAsync(liveAccount, ct);
+            if (ct.IsCancellationRequested)
+                return;
 
-        foreach (var realm in diff.Realms)
-        {
-            var realmViewModel = new RealmSaveSelectionViewModel(realm.RealmName, realm.Status);
+            _pendingLiveAccount = liveAccount;
+            IsNewSaveAccount = diff.IsNewAccount;
+            SaveAccountSettingsSelected =
+                diff.IsNewAccount
+                || diff.AccountSettingsStatus != AccountSnapshotDiffStatus.Unchanged;
 
-            foreach (var character in realm.Characters)
+            if (diff.IsNewAccount)
             {
-                realmViewModel.Characters.Add(
-                    new CharacterSaveSelectionViewModel(
-                        character.RealmName,
-                        character.CharacterName,
-                        character.Status,
-                        isSelected: character.Status != AccountSnapshotDiffStatus.Unchanged,
-                        selectionChanged: OnPendingSaveSelectionChanged
-                    )
-                );
+                SaveSelectionMessage =
+                    $"Account '{liveAccount.AccountName}' has not been saved yet. Confirm to save the entire account snapshot.";
+                return;
             }
 
-            SaveRealms.Add(realmViewModel);
+            foreach (var realm in OrderRealmsForSelection(diff.Realms))
+            {
+                var realmViewModel = new RealmSaveSelectionViewModel(realm.RealmName, realm.Status);
+
+                foreach (var character in OrderCharactersForSelection(realm.Characters))
+                {
+                    realmViewModel.Characters.Add(
+                        new CharacterSaveSelectionViewModel(
+                            character.RealmName,
+                            character.CharacterName,
+                            character.Status,
+                            isSelected: character.Status != AccountSnapshotDiffStatus.Unchanged,
+                            selectionChanged: OnPendingSaveSelectionChanged
+                        )
+                    );
+                }
+
+                SaveRealms.Add(realmViewModel);
+            }
+
+            HasPendingCharacterNodes = SaveRealms.Count > 0;
+            SaveSelectionMessage = diff.HasChanges
+                ? $"Review changed account settings and characters for '{liveAccount.AccountName}'."
+                : $"No changes detected for '{liveAccount.AccountName}' since the last save.";
         }
-
-        HasPendingCharacterNodes = SaveRealms.Count > 0;
-        SaveSelectionMessage = diff.HasChanges
-            ? $"Review changed account settings and characters for '{liveAccount.AccountName}'."
-            : $"No changes detected for '{liveAccount.AccountName}' since the last save.";
-
-        OnPropertyChanged(nameof(CanConfirmSaveSelection));
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            if (!ct.IsCancellationRequested)
+            {
+                ResetPendingSaveSelection("Failed to load account changes.");
+                AppendLog($"Warning: Failed to load account changes — {ex.Message}");
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(_saveSelectionLoadCts, loadCts))
+            {
+                IsLoadingSaveSelection = false;
+                _saveSelectionLoadCts.Dispose();
+                _saveSelectionLoadCts = null;
+            }
+        }
     }
 
     private void ResetPendingSaveSelection(string message)
@@ -957,6 +1006,45 @@ public partial class MainViewModel : ObservableObject
     private void OnPendingSaveSelectionChanged()
     {
         OnPropertyChanged(nameof(CanConfirmSaveSelection));
+    }
+
+    private async Task<AccountSnapshotDiff> BuildDiffAsync(
+        WowAccount liveAccount,
+        CancellationToken ct
+    )
+    {
+        return await Task.Run(
+            () =>
+            {
+                ct.ThrowIfCancellationRequested();
+                var savedAccount = _savedAccountCatalog.FindByAccountName(liveAccount.AccountName);
+                return _accountSnapshotDiffService.BuildDiff(liveAccount, savedAccount);
+            },
+            ct
+        );
+    }
+
+    private static IOrderedEnumerable<RealmSnapshotDiff> OrderRealmsForSelection(
+        IEnumerable<RealmSnapshotDiff> realms
+    )
+    {
+        return realms
+            .OrderBy(realm => GetSelectionSortGroup(realm.Status))
+            .ThenBy(realm => realm.RealmName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static IOrderedEnumerable<CharacterSnapshotDiff> OrderCharactersForSelection(
+        IEnumerable<CharacterSnapshotDiff> characters
+    )
+    {
+        return characters
+            .OrderBy(character => GetSelectionSortGroup(character.Status))
+            .ThenBy(character => character.CharacterName, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static int GetSelectionSortGroup(AccountSnapshotDiffStatus status)
+    {
+        return status == AccountSnapshotDiffStatus.Unchanged ? 1 : 0;
     }
 
     private AccountSavePlan BuildCurrentSavePlan()

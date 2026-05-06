@@ -781,6 +781,12 @@ HearthSwing transfers macros, keybindings, edit mode layout, and addon settings.
               TextWrapping="Wrap"
               Margin="0,8,0,0"
             />
+            <ProgressBar
+              IsIndeterminate="True"
+              Height="4"
+              Margin="0,8,0,0"
+              Visibility="{Binding IsLoadingSaveSelection, Converter={StaticResource BoolToVis}}"
+            />
           </StackPanel>
 
           <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" MaxHeight="320">
@@ -886,7 +892,7 @@ HearthSwing transfers macros, keybindings, edit mode layout, and addon settings.
       Grid.RowSpan="9"
       Background="#ee1a1a2e"
       CornerRadius="8"
-      Visibility="{Binding IsCloseBlockedByArchiving, Converter={StaticResource BoolToVis}}"
+      Visibility="{Binding IsArchiving, Converter={StaticResource BoolToVis}}"
       Padding="20"
       VerticalAlignment="Center"
       HorizontalAlignment="Center"
@@ -895,17 +901,23 @@ HearthSwing transfers macros, keybindings, edit mode layout, and addon settings.
       <Border Background="{StaticResource CardBg}" CornerRadius="8" Padding="16">
         <StackPanel HorizontalAlignment="Center">
           <TextBlock
-            Text="Saving account..."
+            Text="{Binding ArchivingTitle}"
             FontSize="16"
             FontWeight="Bold"
             Foreground="{StaticResource TextPrimary}"
             Margin="0,0,0,8"
           />
           <TextBlock
-            Text="Please wait. The application will close once the save is complete."
+            Text="{Binding ArchivingDetailText}"
             Foreground="{StaticResource TextSecondary}"
             FontSize="13"
             TextWrapping="Wrap"
+          />
+          <ProgressBar
+            IsIndeterminate="True"
+            Height="4"
+            Margin="0,12,0,0"
+            Width="220"
           />
         </StackPanel>
       </Border>
