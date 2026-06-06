@@ -10,6 +10,8 @@ public sealed class ProfileVersionService : IProfileVersionService
     private const string VersionsFolderName = ".versions";
     private const string TimestampFormat = "yyyyMMdd_HHmmss";
     private const string ArchiveExtension = ".tar.gz";
+    private const string MetaExtension = ".meta.json";
+
     private readonly IFileSystem _fs;
     private readonly ISettingsService _settings;
     private readonly ILogger<ProfileVersionService> _logger;
@@ -30,43 +32,49 @@ public sealed class ProfileVersionService : IProfileVersionService
 
     private string VersionsRoot => Path.Combine(_settings.Current.ProfilesPath, VersionsFolderName);
 
-    public async Task CreateVersionAsync(string profileId)
+    public async Task CreateVersionAsync(string savedAccountId)
     {
-        var profilePath = Path.Combine(_settings.Current.ProfilesPath, profileId);
-        if (!_fs.DirectoryExists(profilePath))
+        var savedAccountPath = Path.Combine(_settings.Current.ProfilesPath, savedAccountId);
+        if (!_fs.DirectoryExists(savedAccountPath))
         {
-            _logger.LogWarning("Profile folder '{ProfileId}' not found — skipping version.", profileId);
+            _logger.LogWarning(
+                "Saved account folder '{SavedAccountId}' not found — skipping version.",
+                savedAccountId
+            );
             return;
         }
 
         var versionId = DateTime.Now.ToString(TimestampFormat);
-        var profileVersionsDir = Path.Combine(VersionsRoot, profileId);
-        _fs.CreateDirectory(profileVersionsDir);
+        var savedAccountVersionsDir = Path.Combine(VersionsRoot, savedAccountId);
+        _fs.CreateDirectory(savedAccountVersionsDir);
 
-        var archivePath = Path.Combine(profileVersionsDir, versionId + ArchiveExtension);
-        await _archive.CompressDirectoryAsync(profilePath, archivePath);
-        _logger.LogInformation("Version '{VersionId}' created for profile '{ProfileId}'.", versionId, profileId);
+        var archivePath = Path.Combine(savedAccountVersionsDir, versionId + ArchiveExtension);
+        await _archive.CompressDirectoryAsync(savedAccountPath, archivePath);
+        _logger.LogInformation(
+            "Version '{VersionId}' created for saved account '{SavedAccountId}'.",
+            versionId,
+            savedAccountId
+        );
 
-        PruneVersions(profileId, _settings.Current.MaxVersionsPerProfile);
+        PruneVersions(savedAccountId, _settings.Current.MaxVersionsPerProfile);
     }
 
-    public List<ProfileVersion> GetVersions(string profileId)
+    public List<ProfileVersion> GetVersions(string savedAccountId)
     {
-        var profileVersionsDir = Path.Combine(VersionsRoot, profileId);
-        if (!_fs.DirectoryExists(profileVersionsDir))
+        var savedAccountVersionsDir = Path.Combine(VersionsRoot, savedAccountId);
+        if (!_fs.DirectoryExists(savedAccountVersionsDir))
             return [];
 
         var versions = new List<ProfileVersion>();
         foreach (
             var file in _fs.GetFiles(
-                profileVersionsDir,
+                savedAccountVersionsDir,
                 "*" + ArchiveExtension,
                 SearchOption.TopDirectoryOnly
             )
         )
         {
-            var name = Path.GetFileName(file);
-            var versionId = name[..^ArchiveExtension.Length];
+            var versionId = Path.GetFileName(file)[..^ArchiveExtension.Length];
             if (
                 DateTime.TryParseExact(
                     versionId,
@@ -81,7 +89,7 @@ public sealed class ProfileVersionService : IProfileVersionService
                     new ProfileVersion
                     {
                         VersionId = versionId,
-                        ProfileId = profileId,
+                        ProfileId = savedAccountId,
                         CreatedAt = createdAt,
                         ArchivePath = file,
                     }
@@ -94,17 +102,21 @@ public sealed class ProfileVersionService : IProfileVersionService
 
     public async Task RestoreVersionAsync(ProfileVersion version)
     {
-        var profilePath = Path.Combine(_settings.Current.ProfilesPath, version.ProfileId);
+        var savedAccountPath = Path.Combine(_settings.Current.ProfilesPath, version.ProfileId);
 
-        if (_fs.DirectoryExists(profilePath))
+        if (_fs.DirectoryExists(savedAccountPath))
         {
-            ClearReadOnlyAttributes(profilePath);
-            _fs.DeleteDirectory(profilePath, recursive: true);
+            ClearReadOnlyAttributes(savedAccountPath);
+            _fs.DeleteDirectory(savedAccountPath, recursive: true);
         }
 
-        _fs.CreateDirectory(profilePath);
-        await _archive.ExtractToDirectoryAsync(version.ArchivePath, profilePath);
-        _logger.LogInformation("Profile '{ProfileId}' restored from version '{VersionId}'.", version.ProfileId, version.VersionId);
+        _fs.CreateDirectory(savedAccountPath);
+        await _archive.ExtractToDirectoryAsync(version.ArchivePath, savedAccountPath);
+        _logger.LogInformation(
+            "Saved account '{SavedAccountId}' restored from version '{VersionId}'.",
+            version.ProfileId,
+            version.VersionId
+        );
     }
 
     public void DeleteVersion(ProfileVersion version)
@@ -113,23 +125,32 @@ public sealed class ProfileVersionService : IProfileVersionService
             return;
 
         _fs.DeleteFile(version.ArchivePath);
-        _logger.LogInformation("Version '{VersionId}' deleted for profile '{ProfileId}'.", version.VersionId, version.ProfileId);
+        var metaPath = Path.ChangeExtension(version.ArchivePath, null) + MetaExtension;
+        if (_fs.FileExists(metaPath))
+            _fs.DeleteFile(metaPath);
+
+        _logger.LogInformation(
+            "Version '{VersionId}' deleted for saved account '{SavedAccountId}'.",
+            version.VersionId,
+            version.ProfileId
+        );
     }
 
-    public void PruneVersions(string profileId, int maxVersions)
+    public void PruneVersions(string savedAccountId, int maxVersions)
     {
-        var versions = GetVersions(profileId);
+        var versions = GetVersions(savedAccountId);
         if (versions.Count <= maxVersions)
             return;
 
         var toDelete = versions.Skip(maxVersions).ToList();
         foreach (var version in toDelete)
-        {
-            if (_fs.FileExists(version.ArchivePath))
-                _fs.DeleteFile(version.ArchivePath);
-        }
+            DeleteVersion(version);
 
-        _logger.LogInformation("Pruned {Count} old version(s) for profile '{ProfileId}'.", toDelete.Count, profileId);
+        _logger.LogInformation(
+            "Pruned {Count} old version(s) for saved account '{SavedAccountId}'.",
+            toDelete.Count,
+            savedAccountId
+        );
     }
 
     private void ClearReadOnlyAttributes(string directory)

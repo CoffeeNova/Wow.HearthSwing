@@ -14,12 +14,11 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
-        UpdateService.CleanupPreviousUpdate();
-
         var services = new ServiceCollection();
         ConfigureServices(services);
         Services = services.BuildServiceProvider();
 
+        Services.GetRequiredService<IUpdateService>().CleanupPreviousUpdate();
         Services.GetRequiredService<ISettingsService>().Load();
 
         var window = Services.GetRequiredService<MainWindow>();
@@ -39,7 +38,12 @@ public partial class App : Application
         services.AddSingleton<IFileSystem, FileSystem>();
         services.AddSingleton<IProcessManager, SystemProcessManager>();
         services.AddSingleton<ISettingsService, SettingsService>();
-        services.AddSingleton<IProfileManager, ProfileManager>();
+        services.AddSingleton<IAccountSnapshotLayout, AccountSnapshotLayout>();
+        services.AddSingleton<IAccountSnapshotDiffService, AccountSnapshotDiffService>();
+        services.AddSingleton<IAccountSnapshotSaveService, AccountSnapshotSaveService>();
+        services.AddSingleton<IAccountSwitchService, AccountSwitchService>();
+        services.AddSingleton<ISavedAccountCatalog, SavedAccountCatalog>();
+        services.AddSingleton<IWtfInspector, WtfInspector>();
         services.AddSingleton<ICacheProtector, CacheProtector>();
         services.AddSingleton<IProcessMonitor, ProcessMonitor>();
         services.AddSingleton<IUpdateService, UpdateService>();
@@ -47,6 +51,7 @@ public partial class App : Application
         services.AddSingleton<IProfileVersionService, ProfileVersionService>();
         services.AddSingleton<IDialogService, WpfDialogService>();
         services.AddSingleton<IUiDispatcher, WpfUiDispatcher>();
+        services.AddSingleton<ISwitchingOrchestrator, SwitchingOrchestrator>();
 
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<MainWindow>();

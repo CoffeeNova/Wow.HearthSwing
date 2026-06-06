@@ -7,8 +7,8 @@ public interface ICacheProtector : IDisposable
 {
     bool IsLocked { get; }
     int ProtectedFileCount { get; }
-    List<string> CollectCacheFiles(string wtfPath);
-    void Lock(string wtfPath);
+    List<string> CollectCacheFiles(string wtfPath, string? accountName = null);
+    void Lock(string wtfPath, string? accountName = null);
     void Unlock();
     void ForceRestore(string wtfPath);
 }

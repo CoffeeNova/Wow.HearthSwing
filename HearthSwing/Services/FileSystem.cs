@@ -27,7 +27,7 @@ public sealed class FileSystem : IFileSystem
 
     public void MoveDirectory(string source, string dest) => Directory.Move(source, dest);
 
-    public void CopyFile(string source, string dest) => File.Copy(source, dest);
+    public void CopyFile(string source, string dest) => File.Copy(source, dest, overwrite: true);
 
     public void DeleteFile(string path) => File.Delete(path);
 

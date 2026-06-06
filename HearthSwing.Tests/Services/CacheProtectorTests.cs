@@ -119,20 +119,41 @@ public class CacheProtectorTests
     }
 
     [Test]
-    public void Lock_WhenAlreadyLocked_DoesNothing()
+    public void Lock_WhenAlreadyLocked_RefreshesProtectionForTheNewPath()
     {
         // Arrange
-        var wtfPath = @"C:\Game\WTF";
-        _fs.DirectoryExists(wtfPath).Returns(true);
-        _sut.Lock(wtfPath);
+        var firstWtfPath = @"C:\Game\WTF";
+        var secondWtfPath = @"D:\OtherGame\WTF";
+        var firstCacheFile = @"C:\Game\WTF\Account\X\bindings-cache.wtf";
+        var secondCacheFile = @"D:\OtherGame\WTF\Account\Y\bindings-cache.wtf";
+
+        _fs.DirectoryExists(firstWtfPath).Returns(true);
+        _fs.DirectoryExists(secondWtfPath).Returns(true);
+        _fs.GetFiles(firstWtfPath, "bindings-cache.wtf", SearchOption.AllDirectories)
+            .Returns([firstCacheFile]);
+        _fs.GetFiles(secondWtfPath, "bindings-cache.wtf", SearchOption.AllDirectories)
+            .Returns([secondCacheFile]);
+        _fs.ReadAllBytes(firstCacheFile).Returns([1]);
+        _fs.ReadAllBytes(secondCacheFile).Returns([2]);
+        _fs.FileExists(firstCacheFile).Returns(true);
+        _fs.FileExists(secondCacheFile).Returns(true);
+        _fs.GetAttributes(firstCacheFile).Returns(FileAttributes.Normal, FileAttributes.ReadOnly);
+        _fs.GetAttributes(secondCacheFile).Returns(FileAttributes.Normal);
+
+        _sut.Lock(firstWtfPath);
         _fs.ClearReceivedCalls();
 
         // Act
-        _sut.Lock(wtfPath);
+        _sut.Lock(secondWtfPath);
 
         // Assert
-        _fs.DidNotReceive()
-            .GetFiles(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<SearchOption>());
+        _fs.Received().ReadAllBytes(secondCacheFile);
+        _fs.Received()
+            .SetAttributes(
+                firstCacheFile,
+                Arg.Is<FileAttributes>(attributes => (attributes & FileAttributes.ReadOnly) == 0)
+            );
+        _sut.ProtectedFileCount.ShouldBe(1);
     }
 
     [Test]
@@ -153,7 +174,6 @@ public class CacheProtectorTests
 
         // Assert
         _fs.Received().ReadAllBytes(cacheFile);
-        _fs.Received().SetLastWriteTime(cacheFile, Arg.Any<DateTime>());
         _fs.Received()
             .SetAttributes(
                 cacheFile,
@@ -181,7 +201,9 @@ public class CacheProtectorTests
         _sut.Lock(wtfPath);
 
         // Assert
-        _logger.HasWarning(m => m.Contains("Could not back up") && m.Contains("locked")).ShouldBeTrue();
+        _logger
+            .HasWarning(m => m.Contains("Could not back up") && m.Contains("locked"))
+            .ShouldBeTrue();
         _sut.ProtectedFileCount.ShouldBe(1);
     }
 
@@ -197,7 +219,8 @@ public class CacheProtectorTests
 
         // Assert
         _logger
-            .HasInformation(m => m.Contains("Locked") && m.Contains("cache files")).ShouldBeTrue();
+            .HasInformation(m => m.Contains("Locked") && m.Contains("cache files"))
+            .ShouldBeTrue();
     }
 
     [Test]
@@ -284,7 +307,8 @@ public class CacheProtectorTests
 
         // Assert
         _logger
-            .HasInformation(m => m.Contains("Snapshot") && m.Contains("1 files")).ShouldBeTrue();
+            .HasInformation(m => m.Contains("Snapshot") && m.Contains("1 files"))
+            .ShouldBeTrue();
         _sut.ProtectedFileCount.ShouldBe(1);
     }
 
@@ -313,10 +337,10 @@ public class CacheProtectorTests
 
         // Assert
         _fs.Received().WriteAllBytes(cacheFile, backupData);
-        _fs.Received().SetLastWriteTime(cacheFile, Arg.Any<DateTime>());
         _sut.IsLocked.ShouldBeTrue();
         _logger
-            .HasInformation(m => m.Contains("Force-restored") && m.Contains("/reload")).ShouldBeTrue();
+            .HasInformation(m => m.Contains("Force-restored") && m.Contains("/reload"))
+            .ShouldBeTrue();
     }
 
     [Test]
@@ -350,8 +374,7 @@ public class CacheProtectorTests
         _sut.ForceRestore(wtfPath);
 
         // Assert
-        _logger
-            .HasWarning(m => m.Contains("Could not restore")).ShouldBeTrue();
+        _logger.HasWarning(m => m.Contains("Could not restore")).ShouldBeTrue();
     }
 
     [Test]
@@ -382,5 +405,124 @@ public class CacheProtectorTests
         // Act & Assert
         _sut.Dispose();
         Should.NotThrow(() => _sut.Dispose());
+    }
+
+    // --- scope-aware CollectCacheFiles ---
+
+    [Test]
+    public void CollectCacheFiles_WhenPerAccount_OnlySearchesAccountSubtree()
+    {
+        // Arrange
+        const string wtfPath = @"C:\Game\WTF";
+        const string accountPath = @"C:\Game\WTF\Account\MyAccount";
+        _fs.DirectoryExists(accountPath).Returns(true);
+        _fs.GetFiles(accountPath, "bindings-cache.wtf", SearchOption.AllDirectories)
+            .Returns([@"C:\Game\WTF\Account\MyAccount\bindings-cache.wtf"]);
+
+        // Act
+        var result = _sut.CollectCacheFiles(wtfPath, "MyAccount");
+
+        // Assert
+        result.ShouldContain(@"C:\Game\WTF\Account\MyAccount\bindings-cache.wtf");
+        // Should never search the whole WTF root
+        _fs.DidNotReceive().GetFiles(wtfPath, Arg.Any<string>(), Arg.Any<SearchOption>());
+    }
+
+    [Test]
+    public void CollectCacheFiles_WhenScopedToAccount_DoesNotCollectSiblingAccountFiles()
+    {
+        // Arrange
+        const string wtfPath = @"C:\Game\WTF";
+        const string accountPath = @"C:\Game\WTF\Account\MyAccount";
+        const string siblingAccountPath = @"C:\Game\WTF\Account\SiblingAccount";
+
+        _fs.DirectoryExists(accountPath).Returns(true);
+        _fs.DirectoryExists(siblingAccountPath).Returns(true);
+
+        // Act
+        _sut.CollectCacheFiles(wtfPath, "MyAccount");
+
+        // Assert — sibling account path is never queried
+        _fs.DidNotReceive()
+            .GetFiles(siblingAccountPath, Arg.Any<string>(), Arg.Any<SearchOption>());
+    }
+
+    // --- scope-aware Lock ---
+
+    [Test]
+    public void Lock_WhenPerAccount_OnlyProtectsFilesUnderAccountFolder()
+    {
+        // Arrange
+        const string wtfPath = @"C:\Game\WTF";
+        const string accountPath = @"C:\Game\WTF\Account\MyAccount";
+        const string accountFile = @"C:\Game\WTF\Account\MyAccount\bindings-cache.wtf";
+        _fs.DirectoryExists(accountPath).Returns(true);
+        _fs.GetFiles(accountPath, "bindings-cache.wtf", SearchOption.AllDirectories)
+            .Returns([accountFile]);
+        _fs.ReadAllBytes(accountFile).Returns([1]);
+        _fs.FileExists(accountFile).Returns(true);
+        _fs.GetAttributes(accountFile).Returns(FileAttributes.Normal);
+
+        // Act
+        _sut.Lock(wtfPath, "MyAccount");
+
+        // Assert
+        _sut.ProtectedFileCount.ShouldBe(1);
+        _fs.Received().ReadAllBytes(accountFile);
+        _fs.DidNotReceive().GetFiles(wtfPath, Arg.Any<string>(), Arg.Any<SearchOption>());
+    }
+
+    [Test]
+    public void Lock_WhenSwitchingBetweenAccounts_ClearsOldAccountBackupsAndProtectsNew()
+    {
+        // Arrange
+        const string wtfPath = @"C:\Game\WTF";
+        const string accountAPath = @"C:\Game\WTF\Account\AccountA";
+        const string accountBPath = @"C:\Game\WTF\Account\AccountB";
+        const string fileA = @"C:\Game\WTF\Account\AccountA\bindings-cache.wtf";
+        const string fileB = @"C:\Game\WTF\Account\AccountB\bindings-cache.wtf";
+
+        _fs.DirectoryExists(accountAPath).Returns(true);
+        _fs.DirectoryExists(accountBPath).Returns(true);
+        _fs.GetFiles(accountAPath, "bindings-cache.wtf", SearchOption.AllDirectories)
+            .Returns([fileA]);
+        _fs.GetFiles(accountBPath, "bindings-cache.wtf", SearchOption.AllDirectories)
+            .Returns([fileB]);
+        _fs.ReadAllBytes(fileA).Returns([1]);
+        _fs.ReadAllBytes(fileB).Returns([2]);
+        _fs.FileExists(fileA).Returns(true);
+        _fs.FileExists(fileB).Returns(true);
+        _fs.GetAttributes(Arg.Any<string>()).Returns(FileAttributes.Normal);
+
+        _sut.Lock(wtfPath, "AccountA");
+        _fs.ClearReceivedCalls();
+
+        // Act — switch to AccountB
+        _sut.Lock(wtfPath, "AccountB");
+
+        // Assert — old account A read-only attribute is removed
+        _fs.Received()
+            .SetAttributes(fileA, Arg.Is<FileAttributes>(a => (a & FileAttributes.ReadOnly) == 0));
+        // New account B is backed up
+        _fs.Received().ReadAllBytes(fileB);
+        // Only account B is protected now
+        _sut.ProtectedFileCount.ShouldBe(1);
+    }
+
+    [Test]
+    public void Unlock_AfterAccountLock_ClearsScopeState()
+    {
+        // Arrange
+        const string wtfPath = @"C:\Game\WTF";
+        const string accountPath = @"C:\Game\WTF\Account\MyAccount";
+        _fs.DirectoryExists(accountPath).Returns(true);
+        _sut.Lock(wtfPath, "MyAccount");
+
+        // Act
+        _sut.Unlock();
+
+        // Assert
+        _sut.IsLocked.ShouldBeFalse();
+        _sut.ProtectedFileCount.ShouldBe(0);
     }
 }
