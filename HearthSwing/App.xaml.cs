@@ -53,6 +53,14 @@ public partial class App : Application
         services.AddSingleton<IUiDispatcher, WpfUiDispatcher>();
         services.AddSingleton<ISwitchingOrchestrator, SwitchingOrchestrator>();
 
+        services.AddSingleton<ITemplateTokenizer, TemplateTokenizer>();
+        services.AddSingleton<ITemplateFileClassifier, TemplateFileClassifier>();
+        services.AddSingleton<IDirectoryReplacer, DirectoryReplacer>();
+        services.AddSingleton<ITemplateCatalog, TemplateCatalog>();
+        services.AddSingleton<ITemplateCaptureService, TemplateCaptureService>();
+        services.AddSingleton<ITemplateApplyService, TemplateApplyService>();
+        services.AddSingleton<ITemplateVersionService, TemplateVersionService>();
+
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<MainWindow>();
     }

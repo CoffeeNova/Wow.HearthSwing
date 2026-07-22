@@ -203,16 +203,54 @@
       <!-- 8: Settings link -->
     </Grid.RowDefinitions>
 
-    <!-- Title -->
-    <TextBlock
-      Grid.Row="0"
-      Text="HearthSwing"
-      FontSize="22"
-      FontWeight="Bold"
-      Foreground="{StaticResource TextPrimary}"
-      HorizontalAlignment="Center"
-      Margin="0,0,0,4"
-    />
+    <!-- Title + mode switcher -->
+    <StackPanel Grid.Row="0" Margin="0,0,0,4">
+      <TextBlock
+        Text="HearthSwing"
+        FontSize="22"
+        FontWeight="Bold"
+        Foreground="{StaticResource TextPrimary}"
+        HorizontalAlignment="Center"
+      />
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,6,0,0">
+        <Button
+          Content="Accounts"
+          Command="{Binding ShowAccountsModeCommand}"
+          Background="{StaticResource CardBg}"
+          Padding="14,6"
+          MinWidth="90"
+        >
+          <Button.Style>
+            <Style TargetType="Button" BasedOn="{StaticResource ActionBtn}">
+              <Setter Property="Opacity" Value="1" />
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding IsAccountsMode}" Value="False">
+                  <Setter Property="Opacity" Value="0.5" />
+                </DataTrigger>
+              </Style.Triggers>
+            </Style>
+          </Button.Style>
+        </Button>
+        <Button
+          Content="Templates"
+          Command="{Binding ShowTemplatesModeCommand}"
+          Background="{StaticResource CardBg}"
+          Padding="14,6"
+          MinWidth="90"
+        >
+          <Button.Style>
+            <Style TargetType="Button" BasedOn="{StaticResource ActionBtn}">
+              <Setter Property="Opacity" Value="1" />
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding IsTemplatesMode}" Value="False">
+                  <Setter Property="Opacity" Value="0.5" />
+                </DataTrigger>
+              </Style.Triggers>
+            </Style>
+          </Button.Style>
+        </Button>
+      </StackPanel>
+    </StackPanel>
 
     <!-- Current account indicator -->
     <Border
@@ -221,6 +259,7 @@
       CornerRadius="8"
       Padding="12,8"
       Margin="0,4"
+      Visibility="{Binding IsAccountsMode, Converter={StaticResource BoolToVis}}"
     >
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
         <TextBlock
@@ -246,6 +285,7 @@
       Grid.Row="2"
       ItemsSource="{Binding SavedAccounts}"
       Margin="0,8"
+      Visibility="{Binding IsAccountsMode, Converter={StaticResource BoolToVis}}"
     >
       <ItemsControl.ItemsPanel>
         <ItemsPanelTemplate>
@@ -268,7 +308,7 @@
     </ItemsControl>
 
     <!-- Action buttons -->
-    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,4">
+    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,4" Visibility="{Binding IsAccountsMode, Converter={StaticResource BoolToVis}}">
       <Button
         Content="&#x1F680; Launch WoW"
         Style="{StaticResource ActionBtn}"
@@ -302,6 +342,7 @@
       CornerRadius="6"
       Padding="8,6"
       Margin="0,4,0,0"
+      Visibility="{Binding IsAccountsMode, Converter={StaticResource BoolToVis}}"
     >
       <Grid>
         <Grid.ColumnDefinitions>
@@ -343,6 +384,7 @@
       CornerRadius="6"
       Padding="8,6"
       Margin="0,4,0,0"
+      Visibility="{Binding IsAccountsMode, Converter={StaticResource BoolToVis}}"
     >
       <StackPanel>
         <TextBlock
@@ -359,6 +401,148 @@
           Margin="0,4,0,0"
         />
       </StackPanel>
+    </Border>
+
+    <!-- Templates panel (row 1-5, templates mode) -->
+    <Border
+      Grid.Row="1"
+      Grid.RowSpan="5"
+      Background="{StaticResource PanelBg}"
+      CornerRadius="8"
+      Padding="12"
+      Margin="0,4,0,0"
+      Visibility="{Binding IsTemplatesMode, Converter={StaticResource BoolToVis}}"
+    >
+      <Grid>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0">
+          <TextBlock
+            Text="Character Templates"
+            Foreground="{StaticResource TextPrimary}"
+            FontSize="14"
+            FontWeight="SemiBold"
+          />
+          <TextBlock
+            Text="Create a depersonalized template from a character, then apply it to any other character on any account or realm."
+            Foreground="{StaticResource TextSecondary}"
+            FontSize="11"
+            TextWrapping="Wrap"
+            Margin="0,2,0,0"
+          />
+        </StackPanel>
+
+        <Button
+          Grid.Row="1"
+          Content="&#x2795; Create Template"
+          Style="{StaticResource ActionBtn}"
+          Background="{StaticResource DonkyBrush}"
+          Command="{Binding OpenCreateTemplateCommand}"
+          HorizontalAlignment="Left"
+          Margin="0,10,0,6"
+          MinWidth="150"
+        />
+
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+          <ItemsControl ItemsSource="{Binding Templates}">
+            <ItemsControl.Style>
+              <Style TargetType="ItemsControl">
+                <Style.Triggers>
+                  <Trigger Property="HasItems" Value="False">
+                    <Setter Property="Template">
+                      <Setter.Value>
+                        <ControlTemplate>
+                          <TextBlock
+                            Text="No templates yet. Create one from a live character."
+                            Foreground="{StaticResource TextSecondary}"
+                            FontSize="12"
+                            Margin="0,4"
+                          />
+                        </ControlTemplate>
+                      </Setter.Value>
+                    </Setter>
+                  </Trigger>
+                </Style.Triggers>
+              </Style>
+            </ItemsControl.Style>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <Border
+                  Background="{StaticResource CardBg}"
+                  CornerRadius="6"
+                  Padding="10,8"
+                  Margin="0,0,0,6"
+                >
+                  <StackPanel>
+                    <TextBlock
+                      Text="{Binding Name}"
+                      Foreground="{StaticResource TextPrimary}"
+                      FontSize="14"
+                      FontWeight="SemiBold"
+                    />
+                    <TextBlock
+                      Foreground="{StaticResource TextSecondary}"
+                      FontSize="10"
+                      TextWrapping="Wrap"
+                      Margin="0,2,0,6"
+                    >
+                      <Run Text="from " />
+                      <Run Text="{Binding SourceCharacterName, Mode=OneWay}" />
+                      <Run Text=" - " />
+                      <Run Text="{Binding SourceRealmName, Mode=OneWay}" />
+                    </TextBlock>
+                    <WrapPanel>
+                      <Button
+                        Content="Apply"
+                        Style="{StaticResource ActionBtn}"
+                        Background="{StaticResource LaunchGreen}"
+                        Command="{Binding DataContext.OpenApplyTemplateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                        CommandParameter="{Binding Id}"
+                        Padding="10,3"
+                        Margin="0,0,4,0"
+                        FontSize="11"
+                      />
+                      <Button
+                        Content="Versions"
+                        Style="{StaticResource ActionBtn}"
+                        Background="#6c5ce7"
+                        Command="{Binding DataContext.ToggleTemplateVersionHistoryCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                        CommandParameter="{Binding Id}"
+                        Padding="10,3"
+                        Margin="0,0,4,0"
+                        FontSize="11"
+                      />
+                      <Button
+                        Content="Rename"
+                        Style="{StaticResource ActionBtn}"
+                        Background="{StaticResource TextSecondary}"
+                        Command="{Binding DataContext.OpenRenameTemplateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                        CommandParameter="{Binding Id}"
+                        Padding="10,3"
+                        Margin="0,0,4,0"
+                        FontSize="11"
+                      />
+                      <Button
+                        Content="Delete"
+                        Style="{StaticResource ActionBtn}"
+                        Background="#e17055"
+                        Command="{Binding DataContext.DeleteTemplateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                        CommandParameter="{Binding Id}"
+                        Padding="10,3"
+                        FontSize="11"
+                      />
+                    </WrapPanel>
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </Grid>
     </Border>
 
     <!-- Log area -->
@@ -1030,6 +1214,354 @@ HearthSwing transfers macros, keybindings, edit mode layout, and addon settings.
             Style="{StaticResource ActionBtn}"
             Background="{StaticResource TextSecondary}"
             Command="{Binding ToggleVersionHistoryCommand}"
+            HorizontalAlignment="Right"
+            MinWidth="80"
+            Margin="0,12,0,0"
+          />
+        </Grid>
+      </Border>
+    </Border>
+    <!-- Create template (donor selection) overlay -->
+    <Border
+      Grid.Row="0"
+      Grid.RowSpan="9"
+      Background="#ee1a1a2e"
+      CornerRadius="8"
+      Visibility="{Binding IsTemplateDonorSelectionVisible, Converter={StaticResource BoolToVis}}"
+      Padding="20"
+      VerticalAlignment="Center"
+      HorizontalAlignment="Center"
+      MinWidth="360"
+    >
+      <Border Background="{StaticResource CardBg}" CornerRadius="8" Padding="16">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+          </Grid.RowDefinitions>
+
+          <TextBlock
+            Grid.Row="0"
+            Text="Create Template"
+            FontSize="16"
+            FontWeight="Bold"
+            Foreground="{StaticResource TextPrimary}"
+            Margin="0,0,0,12"
+          />
+
+          <StackPanel Grid.Row="1" Margin="0,0,0,8">
+            <TextBlock
+              Text="Template name:"
+              Foreground="{StaticResource TextSecondary}"
+              FontSize="12"
+              Margin="0,0,0,4"
+            />
+            <TextBox
+              Text="{Binding NewTemplateName, UpdateSourceTrigger=PropertyChanged}"
+              FontSize="13"
+              Padding="4,3"
+            />
+            <TextBlock
+              Text="Donor character:"
+              Foreground="{StaticResource TextSecondary}"
+              FontSize="12"
+              Margin="0,10,0,4"
+            />
+          </StackPanel>
+
+          <ListBox
+            Grid.Row="2"
+            ItemsSource="{Binding LiveCharacters}"
+            SelectedItem="{Binding SelectedDonorCharacter}"
+            Background="{StaticResource PanelBg}"
+            Foreground="{StaticResource TextPrimary}"
+            BorderThickness="0"
+            MaxHeight="240"
+          >
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <TextBlock FontSize="12" Foreground="{StaticResource TextPrimary}">
+                  <Run Text="{Binding CharacterName, Mode=OneWay}" FontWeight="SemiBold" />
+                  <Run Text=" — " />
+                  <Run Text="{Binding RealmName, Mode=OneWay}" />
+                  <Run Text="  (" />
+                  <Run Text="{Binding AccountName, Mode=OneWay}" />
+                  <Run Text=")" />
+                </TextBlock>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+
+          <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button
+              Content="Create"
+              Style="{StaticResource ActionBtn}"
+              Background="{StaticResource LaunchGreen}"
+              Command="{Binding ConfirmCreateTemplateCommand}"
+              IsEnabled="{Binding CanConfirmCreateTemplate}"
+              MinWidth="80"
+              Margin="0,0,8,0"
+            />
+            <Button
+              Content="Cancel"
+              Style="{StaticResource ActionBtn}"
+              Background="{StaticResource TextSecondary}"
+              Command="{Binding CancelCreateTemplateCommand}"
+              MinWidth="80"
+            />
+          </StackPanel>
+        </Grid>
+      </Border>
+    </Border>
+
+    <!-- Apply template (target selection) overlay -->
+    <Border
+      Grid.Row="0"
+      Grid.RowSpan="9"
+      Background="#ee1a1a2e"
+      CornerRadius="8"
+      Visibility="{Binding IsTemplateApplyVisible, Converter={StaticResource BoolToVis}}"
+      Padding="20"
+      VerticalAlignment="Center"
+      HorizontalAlignment="Center"
+      MinWidth="360"
+    >
+      <Border Background="{StaticResource CardBg}" CornerRadius="8" Padding="16">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+          </Grid.RowDefinitions>
+
+          <TextBlock
+            Grid.Row="0"
+            Text="{Binding TemplateApplyTitle}"
+            FontSize="16"
+            FontWeight="Bold"
+            Foreground="{StaticResource TextPrimary}"
+            Margin="0,0,0,12"
+          />
+
+          <TextBlock
+            Grid.Row="1"
+            Text="Target character:"
+            Foreground="{StaticResource TextSecondary}"
+            FontSize="12"
+            Margin="0,0,0,4"
+          />
+
+          <ListBox
+            Grid.Row="2"
+            ItemsSource="{Binding LiveCharacters}"
+            SelectedItem="{Binding SelectedTargetCharacter}"
+            Background="{StaticResource PanelBg}"
+            Foreground="{StaticResource TextPrimary}"
+            BorderThickness="0"
+            MaxHeight="240"
+          >
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <TextBlock FontSize="12" Foreground="{StaticResource TextPrimary}">
+                  <Run Text="{Binding CharacterName, Mode=OneWay}" FontWeight="SemiBold" />
+                  <Run Text=" — " />
+                  <Run Text="{Binding RealmName, Mode=OneWay}" />
+                  <Run Text="  (" />
+                  <Run Text="{Binding AccountName, Mode=OneWay}" />
+                  <Run Text=")" />
+                </TextBlock>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+
+          <CheckBox
+            Grid.Row="3"
+            Content="Also apply account-level settings (overwrites shared SavedVariables)"
+            IsChecked="{Binding IncludeAccountSettings}"
+            Foreground="{StaticResource WarningOrange}"
+            FontSize="11"
+            Margin="0,10,0,0"
+          />
+
+          <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button
+              Content="Apply"
+              Style="{StaticResource ActionBtn}"
+              Background="{StaticResource LaunchGreen}"
+              Command="{Binding ConfirmApplyTemplateCommand}"
+              IsEnabled="{Binding CanConfirmApplyTemplate}"
+              MinWidth="80"
+              Margin="0,0,8,0"
+            />
+            <Button
+              Content="Cancel"
+              Style="{StaticResource ActionBtn}"
+              Background="{StaticResource TextSecondary}"
+              Command="{Binding CancelApplyTemplateCommand}"
+              MinWidth="80"
+            />
+          </StackPanel>
+        </Grid>
+      </Border>
+    </Border>
+
+    <!-- Rename template overlay -->
+    <Border
+      Grid.Row="0"
+      Grid.RowSpan="9"
+      Background="#ee1a1a2e"
+      CornerRadius="8"
+      Visibility="{Binding IsTemplateRenameVisible, Converter={StaticResource BoolToVis}}"
+      Padding="20"
+      VerticalAlignment="Center"
+      HorizontalAlignment="Center"
+      MinWidth="320"
+    >
+      <Border Background="{StaticResource CardBg}" CornerRadius="8" Padding="16">
+        <StackPanel>
+          <TextBlock
+            Text="Rename Template"
+            FontSize="16"
+            FontWeight="Bold"
+            Foreground="{StaticResource TextPrimary}"
+            Margin="0,0,0,12"
+          />
+          <TextBox
+            Text="{Binding RenameTemplateName, UpdateSourceTrigger=PropertyChanged}"
+            FontSize="13"
+            Padding="4,3"
+          />
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button
+              Content="Rename"
+              Style="{StaticResource ActionBtn}"
+              Background="{StaticResource LaunchGreen}"
+              Command="{Binding ConfirmRenameTemplateCommand}"
+              IsEnabled="{Binding CanConfirmRenameTemplate}"
+              MinWidth="80"
+              Margin="0,0,8,0"
+            />
+            <Button
+              Content="Cancel"
+              Style="{StaticResource ActionBtn}"
+              Background="{StaticResource TextSecondary}"
+              Command="{Binding CancelRenameTemplateCommand}"
+              MinWidth="80"
+            />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </Border>
+
+    <!-- Template version history overlay -->
+    <Border
+      Grid.Row="0"
+      Grid.RowSpan="9"
+      Background="#ee1a1a2e"
+      CornerRadius="8"
+      Visibility="{Binding IsTemplateVersionHistoryVisible, Converter={StaticResource BoolToVis}}"
+      Padding="20"
+      VerticalAlignment="Center"
+      HorizontalAlignment="Center"
+      MinWidth="360"
+    >
+      <Border Background="{StaticResource CardBg}" CornerRadius="8" Padding="16">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+          </Grid.RowDefinitions>
+          <TextBlock
+            Grid.Row="0"
+            Text="Template Version History"
+            FontSize="16"
+            FontWeight="Bold"
+            Foreground="{StaticResource TextPrimary}"
+            Margin="0,0,0,12"
+          />
+          <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" MaxHeight="300">
+            <StackPanel>
+              <ItemsControl ItemsSource="{Binding TemplateVersions}">
+                <ItemsControl.Style>
+                  <Style TargetType="ItemsControl">
+                    <Style.Triggers>
+                      <Trigger Property="HasItems" Value="False">
+                        <Setter Property="Template">
+                          <Setter.Value>
+                            <ControlTemplate>
+                              <TextBlock
+                                Text="No versions saved yet."
+                                Foreground="{StaticResource TextSecondary}"
+                                FontSize="12"
+                                Margin="0,4"
+                              />
+                            </ControlTemplate>
+                          </Setter.Value>
+                        </Setter>
+                      </Trigger>
+                    </Style.Triggers>
+                  </Style>
+                </ItemsControl.Style>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Border
+                      Background="{StaticResource PanelBg}"
+                      CornerRadius="4"
+                      Padding="8,6"
+                      Margin="0,0,0,4"
+                    >
+                      <Grid>
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="*" />
+                          <ColumnDefinition Width="Auto" />
+                          <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                          Grid.Column="0"
+                          Text="{Binding DisplayName}"
+                          Foreground="{StaticResource TextPrimary}"
+                          FontSize="12"
+                          VerticalAlignment="Center"
+                        />
+                        <Button
+                          Grid.Column="1"
+                          Content="Restore"
+                          Style="{StaticResource ActionBtn}"
+                          Background="{StaticResource LaunchGreen}"
+                          Command="{Binding DataContext.RestoreTemplateVersionCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                          CommandParameter="{Binding VersionId}"
+                          Padding="8,3"
+                          Margin="4,0"
+                          FontSize="11"
+                        />
+                        <Button
+                          Grid.Column="2"
+                          Content="Delete"
+                          Style="{StaticResource ActionBtn}"
+                          Background="#e17055"
+                          Command="{Binding DataContext.DeleteTemplateVersionCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                          CommandParameter="{Binding VersionId}"
+                          Padding="8,3"
+                          FontSize="11"
+                        />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </ScrollViewer>
+          <Button
+            Grid.Row="2"
+            Content="Close"
+            Style="{StaticResource ActionBtn}"
+            Background="{StaticResource TextSecondary}"
+            Command="{Binding CloseTemplateVersionHistoryCommand}"
             HorizontalAlignment="Right"
             MinWidth="80"
             Margin="0,12,0,0"

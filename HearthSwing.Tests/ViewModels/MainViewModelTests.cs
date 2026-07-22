@@ -3,6 +3,7 @@ using AutoFixture;
 using AutoFixture.AutoNSubstitute;
 using HearthSwing.Models;
 using HearthSwing.Models.Accounts;
+using HearthSwing.Models.Templates;
 using HearthSwing.Models.WoW;
 using HearthSwing.Services;
 using HearthSwing.ViewModels;
@@ -26,6 +27,10 @@ public class MainViewModelTests
     private IUiDispatcher _uiDispatcher = null!;
     private IUiLogSink _logSink = null!;
     private IWtfInspector _wtfInspector = null!;
+    private ITemplateCatalog _templateCatalog = null!;
+    private ITemplateCaptureService _templateCaptureService = null!;
+    private ITemplateApplyService _templateApplyService = null!;
+    private ITemplateVersionService _templateVersionService = null!;
 
     [SetUp]
     public void SetUp()
@@ -42,12 +47,17 @@ public class MainViewModelTests
         _uiDispatcher = _fixture.Freeze<IUiDispatcher>();
         _logSink = _fixture.Freeze<IUiLogSink>();
         _wtfInspector = _fixture.Freeze<IWtfInspector>();
+        _templateCatalog = _fixture.Freeze<ITemplateCatalog>();
+        _templateCaptureService = _fixture.Freeze<ITemplateCaptureService>();
+        _templateApplyService = _fixture.Freeze<ITemplateApplyService>();
+        _templateVersionService = _fixture.Freeze<ITemplateVersionService>();
 
         _settingsService.Current.Returns(
             new AppSettings { GamePath = @"C:\Game", ProfilesPath = @"C:\Profiles" }
         );
         _savedAccountCatalog.DiscoverAccounts().Returns([]);
         _savedAccountCatalog.GetActiveAccount().Returns((ActiveAccountState?)null);
+        _templateCatalog.DiscoverTemplates().Returns([]);
         _wtfInspector
             .Inspect(@"C:\Game")
             .Returns(
@@ -73,7 +83,11 @@ public class MainViewModelTests
             _dialogService,
             _uiDispatcher,
             _logSink,
-            _wtfInspector
+            _wtfInspector,
+            _templateCatalog,
+            _templateCaptureService,
+            _templateApplyService,
+            _templateVersionService
         );
 
     private static void InvokePrivate(MainViewModel sut, string methodName, params object[] args)
@@ -698,5 +712,174 @@ public class MainViewModelTests
             AccountSettingsStatus = accountSettingsStatus,
             Realms = realms,
         };
+    }
+
+    private static WowCharacter SampleCharacter =>
+        new()
+        {
+            AccountName = "MainAccount",
+            RealmName = "Firemaw",
+            CharacterName = "Thrall",
+            FolderPath = @"C:\WTF\Account\MainAccount\Firemaw\Thrall",
+        };
+
+    private static TemplateSummary SampleTemplate =>
+        new()
+        {
+            Id = "warlock",
+            Name = "Warlock - TBC",
+            RootPath = @"C:\Profiles\.templates\warlock",
+            SourceAccountName = "MainAccount",
+            SourceRealmName = "Firemaw",
+            SourceCharacterName = "Thrall",
+        };
+
+    [Test]
+    public void ShowTemplatesMode_SetsTemplatesModeFlags()
+    {
+        // Arrange
+        var sut = CreateSut();
+
+        // Act
+        sut.ShowTemplatesModeCommand.Execute(null);
+
+        // Assert
+        sut.IsTemplatesMode.ShouldBeTrue();
+        sut.IsAccountsMode.ShouldBeFalse();
+    }
+
+    [Test]
+    public void ShowAccountsMode_SetsAccountsModeFlags()
+    {
+        // Arrange
+        var sut = CreateSut();
+        sut.ShowTemplatesModeCommand.Execute(null);
+
+        // Act
+        sut.ShowAccountsModeCommand.Execute(null);
+
+        // Assert
+        sut.IsAccountsMode.ShouldBeTrue();
+        sut.IsTemplatesMode.ShouldBeFalse();
+    }
+
+    [Test]
+    public void ConfirmCreateTemplate_WhenValid_CallsCaptureServiceAndRefreshes()
+    {
+        // Arrange
+        _templateCaptureService
+            .CreateTemplate(Arg.Any<WowCharacter>(), "Warlock - TBC")
+            .Returns(SampleTemplate);
+        var sut = CreateSut();
+        sut.SelectedDonorCharacter = SampleCharacter;
+        sut.NewTemplateName = "Warlock - TBC";
+
+        // Act
+        sut.ConfirmCreateTemplateCommand.Execute(null);
+
+        // Assert
+        _templateCaptureService.Received().CreateTemplate(SampleCharacter, "Warlock - TBC");
+        sut.IsTemplateDonorSelectionVisible.ShouldBeFalse();
+    }
+
+    [Test]
+    public void ConfirmApplyTemplate_WhenValid_CallsApplyService()
+    {
+        // Arrange
+        var template = SampleTemplate;
+        var sut = CreateSut();
+        sut.TemplateToApply = template;
+        sut.SelectedTargetCharacter = SampleCharacter;
+
+        // Act
+        sut.ConfirmApplyTemplateCommand.Execute(null);
+
+        // Assert
+        _templateApplyService
+            .Received()
+            .ApplyTemplate(template, SampleCharacter, Arg.Any<TemplateApplyOptions>());
+        sut.IsTemplateApplyVisible.ShouldBeFalse();
+    }
+
+    [Test]
+    public void ConfirmApplyTemplate_WhenWowRunning_DoesNotApply()
+    {
+        // Arrange
+        var sut = CreateSut();
+        sut.TemplateToApply = SampleTemplate;
+        sut.SelectedTargetCharacter = SampleCharacter;
+        sut.IsWowRunning = true;
+
+        // Act
+        sut.ConfirmApplyTemplateCommand.Execute(null);
+
+        // Assert
+        _templateApplyService
+            .DidNotReceive()
+            .ApplyTemplate(
+                Arg.Any<TemplateSummary>(),
+                Arg.Any<WowCharacter>(),
+                Arg.Any<TemplateApplyOptions>()
+            );
+    }
+
+    [Test]
+    public void ConfirmApplyTemplate_WhenIncludeAccountSettingsDeclined_DoesNotApply()
+    {
+        // Arrange
+        _dialogService.Confirm(Arg.Any<string>(), Arg.Any<string>()).Returns(false);
+        var sut = CreateSut();
+        sut.TemplateToApply = SampleTemplate;
+        sut.SelectedTargetCharacter = SampleCharacter;
+        sut.IncludeAccountSettings = true;
+
+        // Act
+        sut.ConfirmApplyTemplateCommand.Execute(null);
+
+        // Assert
+        _templateApplyService
+            .DidNotReceive()
+            .ApplyTemplate(
+                Arg.Any<TemplateSummary>(),
+                Arg.Any<WowCharacter>(),
+                Arg.Any<TemplateApplyOptions>()
+            );
+    }
+
+    [Test]
+    public void DeleteTemplate_WhenConfirmed_CallsCatalogDelete()
+    {
+        // Arrange
+        _templateCatalog.DiscoverTemplates().Returns([SampleTemplate]);
+        _dialogService.Confirm(Arg.Any<string>(), Arg.Any<string>()).Returns(true);
+        var sut = CreateSut();
+
+        // Act
+        sut.DeleteTemplateCommand.Execute("warlock");
+
+        // Assert
+        _templateCatalog.Received().Delete("warlock");
+    }
+
+    [Test]
+    public void ToggleTemplateVersionHistory_LoadsVersionsAndShowsPanel()
+    {
+        // Arrange
+        var version = new ProfileVersion
+        {
+            VersionId = "20260101_100000",
+            ProfileId = "warlock",
+            CreatedAt = new DateTime(2026, 1, 1, 10, 0, 0),
+            ArchivePath = @"C:\Profiles\.template-versions\warlock\20260101_100000.tar.gz",
+        };
+        _templateVersionService.GetVersions("warlock").Returns([version]);
+        var sut = CreateSut();
+
+        // Act
+        sut.ToggleTemplateVersionHistoryCommand.Execute("warlock");
+
+        // Assert
+        sut.IsTemplateVersionHistoryVisible.ShouldBeTrue();
+        sut.TemplateVersions.ShouldHaveSingleItem();
     }
 }

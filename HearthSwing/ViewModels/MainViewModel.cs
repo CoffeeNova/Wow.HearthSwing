@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HearthSwing.Models;
 using HearthSwing.Models.Accounts;
+using HearthSwing.Models.Templates;
 using HearthSwing.Models.WoW;
 using HearthSwing.Services;
 
@@ -23,8 +24,14 @@ public partial class MainViewModel : ObservableObject
     private readonly IUiDispatcher _uiDispatcher;
     private readonly IUiLogSink _logSink;
     private readonly IWtfInspector _wtfInspector;
+    private readonly ITemplateCatalog _templateCatalog;
+    private readonly ITemplateCaptureService _templateCaptureService;
+    private readonly ITemplateApplyService _templateApplyService;
+    private readonly ITemplateVersionService _templateVersionService;
     private WowInstallation? _installation;
     private WowAccount? _pendingLiveAccount;
+    private string _templateToRenameId = string.Empty;
+    private string _versionHistoryTemplateId = string.Empty;
     private CancellationTokenSource? _unlockCts;
     private CancellationTokenSource? _monitorCts;
     private CancellationTokenSource? _saveSelectionLoadCts;
@@ -136,6 +143,48 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string _archivingTitle = "Working...";
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsAccountsMode))]
+    [NotifyPropertyChangedFor(nameof(IsTemplatesMode))]
+    private AppMode _activeMode = AppMode.Accounts;
+
+    [ObservableProperty]
+    private bool _isTemplateDonorSelectionVisible;
+
+    [ObservableProperty]
+    private bool _isTemplateApplyVisible;
+
+    [ObservableProperty]
+    private bool _isTemplateVersionHistoryVisible;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanConfirmCreateTemplate))]
+    private WowCharacter? _selectedDonorCharacter;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanConfirmCreateTemplate))]
+    private string _newTemplateName = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanConfirmApplyTemplate))]
+    private WowCharacter? _selectedTargetCharacter;
+
+    [ObservableProperty]
+    private bool _includeAccountSettings;
+
+    [ObservableProperty]
+    private TemplateSummary? _templateToApply;
+
+    [ObservableProperty]
+    private string _templateApplyTitle = "Apply Template";
+
+    [ObservableProperty]
+    private bool _isTemplateRenameVisible;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanConfirmRenameTemplate))]
+    private string _renameTemplateName = string.Empty;
+
     public ObservableCollection<SavedAccountSummary> SavedAccounts { get; } = [];
 
     public ObservableCollection<string> LiveAccounts { get; } = [];
@@ -143,6 +192,24 @@ public partial class MainViewModel : ObservableObject
     public ObservableCollection<RealmSaveSelectionViewModel> SaveRealms { get; } = [];
 
     public ObservableCollection<ProfileVersion> Versions { get; } = [];
+
+    public ObservableCollection<TemplateSummary> Templates { get; } = [];
+
+    public ObservableCollection<ProfileVersion> TemplateVersions { get; } = [];
+
+    public ObservableCollection<WowCharacter> LiveCharacters { get; } = [];
+
+    public bool IsAccountsMode => ActiveMode == AppMode.Accounts;
+
+    public bool IsTemplatesMode => ActiveMode == AppMode.Templates;
+
+    public bool CanConfirmCreateTemplate =>
+        SelectedDonorCharacter is not null && !string.IsNullOrWhiteSpace(NewTemplateName);
+
+    public bool CanConfirmApplyTemplate =>
+        TemplateToApply is not null && SelectedTargetCharacter is not null;
+
+    public bool CanConfirmRenameTemplate => !string.IsNullOrWhiteSpace(RenameTemplateName);
 
     public bool CanConfirmSaveSelection =>
         !IsLoadingSaveSelection
@@ -185,7 +252,11 @@ public partial class MainViewModel : ObservableObject
         IDialogService dialogService,
         IUiDispatcher uiDispatcher,
         IUiLogSink logSink,
-        IWtfInspector wtfInspector
+        IWtfInspector wtfInspector,
+        ITemplateCatalog templateCatalog,
+        ITemplateCaptureService templateCaptureService,
+        ITemplateApplyService templateApplyService,
+        ITemplateVersionService templateVersionService
     )
     {
         _settingsService = settingsService;
@@ -199,6 +270,10 @@ public partial class MainViewModel : ObservableObject
         _uiDispatcher = uiDispatcher;
         _logSink = logSink;
         _wtfInspector = wtfInspector;
+        _templateCatalog = templateCatalog;
+        _templateCaptureService = templateCaptureService;
+        _templateApplyService = templateApplyService;
+        _templateVersionService = templateVersionService;
 
         _logSink.MessageLogged += OnLogMessage;
         _orchestrator.Log += OnLogMessage;
@@ -212,6 +287,7 @@ public partial class MainViewModel : ObservableObject
         AutoSaveOnExit = settingsService.Current.AutoSaveOnExit;
 
         RefreshState();
+        RefreshTemplates();
     }
 
     private void RefreshState()
@@ -809,6 +885,321 @@ public partial class MainViewModel : ObservableObject
     }
 
     private void OnLogMessage(string message) => AppendLog(message);
+
+    [RelayCommand]
+    private void ShowAccountsMode() => ActiveMode = AppMode.Accounts;
+
+    [RelayCommand]
+    private void ShowTemplatesMode()
+    {
+        ActiveMode = AppMode.Templates;
+        RefreshTemplates();
+    }
+
+    [RelayCommand]
+    private void OpenCreateTemplate()
+    {
+        if (GuardWowRunning("Close the game before creating a template."))
+            return;
+        if (!RefreshLiveCharacters())
+            return;
+
+        NewTemplateName = string.Empty;
+        SelectedDonorCharacter = null;
+        IsTemplateDonorSelectionVisible = true;
+    }
+
+    [RelayCommand]
+    private void CancelCreateTemplate() => IsTemplateDonorSelectionVisible = false;
+
+    [RelayCommand]
+    private void ConfirmCreateTemplate()
+    {
+        if (!CanConfirmCreateTemplate || SelectedDonorCharacter is null)
+            return;
+        if (GuardWowRunning("Close the game before creating a template."))
+            return;
+
+        IsBusy = true;
+        try
+        {
+            var template = _templateCaptureService.CreateTemplate(
+                SelectedDonorCharacter,
+                NewTemplateName
+            );
+            IsTemplateDonorSelectionVisible = false;
+            RefreshTemplates();
+            StatusText = $"Template '{template.Name}' created.";
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"ERROR: {ex.Message}");
+            _dialogService.ShowWarning(ex.Message, "Create Template Error");
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private void OpenApplyTemplate(string templateId)
+    {
+        var template = Templates.FirstOrDefault(candidate => candidate.Id == templateId);
+        if (template is null)
+            return;
+        if (GuardWowRunning("Close the game before applying a template."))
+            return;
+        if (!RefreshLiveCharacters())
+            return;
+
+        TemplateToApply = template;
+        SelectedTargetCharacter = null;
+        IncludeAccountSettings = false;
+        TemplateApplyTitle = $"Apply '{template.Name}'";
+        IsTemplateApplyVisible = true;
+    }
+
+    [RelayCommand]
+    private void CancelApplyTemplate()
+    {
+        IsTemplateApplyVisible = false;
+        TemplateToApply = null;
+    }
+
+    [RelayCommand]
+    private void ConfirmApplyTemplate()
+    {
+        if (!CanConfirmApplyTemplate || TemplateToApply is null || SelectedTargetCharacter is null)
+            return;
+        if (GuardWowRunning("Close the game before applying a template."))
+            return;
+
+        if (
+            IncludeAccountSettings
+            && !_dialogService.Confirm(
+                "Applying account-level settings overwrites the SavedVariables shared by every character on the target account. Continue?",
+                "Overwrite Account Settings?"
+            )
+        )
+        {
+            AppendLog("Template apply cancelled by user.");
+            return;
+        }
+
+        var template = TemplateToApply;
+        var target = SelectedTargetCharacter;
+        var options = new TemplateApplyOptions
+        {
+            IncludeAccountSettings = IncludeAccountSettings,
+            CreateVersionBeforeApply = VersioningEnabled,
+        };
+
+        IsBusy = true;
+        try
+        {
+            _templateApplyService.ApplyTemplate(template, target, options);
+            IsTemplateApplyVisible = false;
+            TemplateToApply = null;
+            StatusText =
+                $"Template '{template.Name}' applied to {target.CharacterName}. Type /reload in WoW.";
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"ERROR: {ex.Message}");
+            _dialogService.ShowWarning(ex.Message, "Apply Template Error");
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private void OpenRenameTemplate(string templateId)
+    {
+        var template = Templates.FirstOrDefault(candidate => candidate.Id == templateId);
+        if (template is null)
+            return;
+
+        _templateToRenameId = template.Id;
+        RenameTemplateName = template.Name;
+        IsTemplateRenameVisible = true;
+    }
+
+    [RelayCommand]
+    private void CancelRenameTemplate()
+    {
+        IsTemplateRenameVisible = false;
+        _templateToRenameId = string.Empty;
+    }
+
+    [RelayCommand]
+    private void ConfirmRenameTemplate()
+    {
+        if (!CanConfirmRenameTemplate || string.IsNullOrEmpty(_templateToRenameId))
+            return;
+
+        try
+        {
+            _templateCatalog.Rename(_templateToRenameId, RenameTemplateName);
+            IsTemplateRenameVisible = false;
+            _templateToRenameId = string.Empty;
+            RefreshTemplates();
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"ERROR: {ex.Message}");
+            _dialogService.ShowWarning(ex.Message, "Rename Template Error");
+        }
+    }
+
+    [RelayCommand]
+    private void DeleteTemplate(string templateId)
+    {
+        var template = Templates.FirstOrDefault(candidate => candidate.Id == templateId);
+        if (template is null)
+            return;
+
+        if (
+            !_dialogService.Confirm(
+                $"Delete template '{template.Name}' and all its versions? This cannot be undone.",
+                "Delete Template"
+            )
+        )
+            return;
+
+        try
+        {
+            _templateCatalog.Delete(template.Id);
+            RefreshTemplates();
+            if (IsTemplateVersionHistoryVisible && _versionHistoryTemplateId == template.Id)
+                IsTemplateVersionHistoryVisible = false;
+            StatusText = $"Template '{template.Name}' deleted.";
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"ERROR: {ex.Message}");
+            _dialogService.ShowWarning(ex.Message, "Delete Template Error");
+        }
+    }
+
+    [RelayCommand]
+    private void ToggleTemplateVersionHistory(string templateId)
+    {
+        if (IsTemplateVersionHistoryVisible && _versionHistoryTemplateId == templateId)
+        {
+            IsTemplateVersionHistoryVisible = false;
+            return;
+        }
+
+        _versionHistoryTemplateId = templateId;
+        TemplateVersions.Clear();
+        foreach (var version in _templateVersionService.GetVersions(templateId))
+            TemplateVersions.Add(version);
+
+        IsTemplateVersionHistoryVisible = true;
+    }
+
+    [RelayCommand]
+    private void CloseTemplateVersionHistory()
+    {
+        IsTemplateVersionHistoryVisible = false;
+        _versionHistoryTemplateId = string.Empty;
+    }
+
+    [RelayCommand]
+    private async Task RestoreTemplateVersionAsync(string versionId)
+    {
+        var version = TemplateVersions.FirstOrDefault(candidate =>
+            candidate.VersionId == versionId
+        );
+        if (version is null)
+            return;
+
+        try
+        {
+            ArchivingTitle = $"Restoring template version {version.DisplayName}...";
+            await RunTrackedArchiveAsync(_templateVersionService.RestoreVersionAsync(version));
+            IsTemplateVersionHistoryVisible = false;
+            RefreshTemplates();
+            StatusText = $"Restored template version {version.DisplayName}.";
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"ERROR: {ex.Message}");
+        }
+    }
+
+    [RelayCommand]
+    private void DeleteTemplateVersion(string versionId)
+    {
+        var version = TemplateVersions.FirstOrDefault(candidate =>
+            candidate.VersionId == versionId
+        );
+        if (version is null)
+            return;
+
+        try
+        {
+            _templateVersionService.DeleteVersion(version);
+            TemplateVersions.Remove(version);
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"ERROR: {ex.Message}");
+        }
+    }
+
+    private void RefreshTemplates()
+    {
+        Templates.Clear();
+        try
+        {
+            foreach (var template in _templateCatalog.DiscoverTemplates())
+                Templates.Add(template);
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Warning: Failed to load templates — {ex.Message}");
+        }
+    }
+
+    private bool RefreshLiveCharacters()
+    {
+        if (!EnsureInstallation() || _installation is null)
+        {
+            AppendLog("No live WoW characters were found in WTF.");
+            return false;
+        }
+
+        LiveCharacters.Clear();
+        foreach (
+            var character in _installation
+                .Accounts.SelectMany(account => account.Realms)
+                .SelectMany(realm => realm.Characters)
+                .OrderBy(character => character.AccountName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(character => character.RealmName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(character => character.CharacterName, StringComparer.OrdinalIgnoreCase)
+        )
+        {
+            LiveCharacters.Add(character);
+        }
+
+        if (LiveCharacters.Count == 0)
+        {
+            AppendLog("No live WoW characters were found in WTF.");
+            return false;
+        }
+
+        return true;
+    }
+
+    partial void OnActiveModeChanged(AppMode value)
+    {
+        OnPropertyChanged(nameof(IsAccountsMode));
+        OnPropertyChanged(nameof(IsTemplatesMode));
+    }
 
     private void AppendLog(string message)
     {
