@@ -549,7 +549,9 @@ public class MainViewModelTests
         _accountSnapshotDiffService.BuildDiff(liveAccount, savedAccount).Returns(diff);
 
         var sut = CreateSut();
-        await InvokePrivateAsync(sut, "SaveAccountAsync");
+        // Populate the installation without triggering the setter-driven fire-and-forget load,
+        // so this test exercises a single deterministic load.
+        InvokePrivate(sut, "EnsureInstallation");
 
         // Act
         await InvokePrivateAsync(sut, "LoadSaveSelectionForSelectedAccountAsync", "Alpha");
@@ -927,5 +929,91 @@ public class MainViewModelTests
         // Assert
         sut.IsTemplateVersionHistoryVisible.ShouldBeTrue();
         sut.TemplateVersions.ShouldHaveSingleItem();
+    }
+
+    [Test]
+    public void OpenUpdateTemplate_EntersUpdateModeAndPreselectsSourceDonor()
+    {
+        // Arrange
+        var template = SampleTemplate;
+        _templateCatalog.DiscoverTemplates().Returns([template]);
+        StubInstallationWithThrall();
+        var sut = CreateSut();
+
+        // Act
+        sut.OpenUpdateTemplateCommand.Execute("warlock");
+
+        // Assert
+        sut.IsUpdatingTemplate.ShouldBeTrue();
+        sut.IsCreatingNewTemplate.ShouldBeFalse();
+        sut.NewTemplateName.ShouldBe("Warlock - TBC");
+        sut.SelectedDonorCharacter.ShouldNotBeNull();
+        sut.SelectedDonorCharacter!.CharacterName.ShouldBe("Thrall");
+    }
+
+    [Test]
+    public void ConfirmUpdateTemplate_WhenVersioningOff_UpdatesCharacterTemplateInPlace()
+    {
+        // Arrange
+        var template = SampleTemplate;
+        _templateCatalog.DiscoverTemplates().Returns([template]);
+        StubInstallationWithThrall();
+        var sut = CreateSut();
+        sut.VersioningEnabled = false;
+        sut.OpenUpdateTemplateCommand.Execute("warlock");
+
+        // Act
+        sut.ConfirmUpdateTemplateCommand.Execute(null);
+
+        // Assert
+        _templateCaptureService
+            .Received()
+            .UpdateCharacterTemplate(
+                template,
+                Arg.Is<WowCharacter>(character => character.CharacterName == "Thrall")
+            );
+        sut.IsTemplateCreateVisible.ShouldBeFalse();
+        sut.IsUpdatingTemplate.ShouldBeFalse();
+    }
+
+    private void StubInstallationWithThrall()
+    {
+        _wtfInspector
+            .Inspect(@"C:\Game")
+            .Returns(
+                new WowInstallation
+                {
+                    GamePath = @"C:\Game",
+                    WtfPath = @"C:\Game\WTF",
+                    Accounts =
+                    [
+                        new WowAccount
+                        {
+                            AccountName = "MainAccount",
+                            FolderPath = @"C:\Game\WTF\Account\MainAccount",
+                            Realms =
+                            [
+                                new WowRealm
+                                {
+                                    AccountName = "MainAccount",
+                                    RealmName = "Firemaw",
+                                    FolderPath = @"C:\Game\WTF\Account\MainAccount\Firemaw",
+                                    Characters =
+                                    [
+                                        new WowCharacter
+                                        {
+                                            AccountName = "MainAccount",
+                                            RealmName = "Firemaw",
+                                            CharacterName = "Thrall",
+                                            FolderPath =
+                                                @"C:\Game\WTF\Account\MainAccount\Firemaw\Thrall",
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                }
+            );
     }
 }

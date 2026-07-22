@@ -184,4 +184,58 @@ public class TemplateCaptureServiceTests
         // Act & Assert
         Should.Throw<ArgumentException>(() => _sut.CreateAccountTemplate(SourceAccount, "  "));
     }
+
+    [Test]
+    public void UpdateCharacterTemplate_ClearsContentAndReCapturesInPlace()
+    {
+        // Arrange
+        var template = Template(TemplateKind.Character);
+        _catalog.GetById("Warlock").Returns(template);
+        _fs.DirectoryExists(TemplateRoot + @"\Character").Returns(true);
+        _fs.DirectoryExists(CharFolder).Returns(true);
+        _fs.GetFiles(TemplateRoot + @"\Character", "*", SearchOption.AllDirectories).Returns([]);
+        _layout
+            .CollectCharacterRelativePaths(CharFolder)
+            .Returns([@"SavedVariables\CharAddon.lua"]);
+
+        // Act
+        _sut.UpdateCharacterTemplate(template, SourceCharacter);
+
+        // Assert
+        _fs.Received().DeleteDirectory(TemplateRoot + @"\Character", true);
+        _fs.Received()
+            .WriteAllText(
+                @"C:\Profiles\.templates\Warlock\Character\__REALM__\__CHAR__\SavedVariables\CharAddon.lua",
+                "name=\"{{CHAR}}\" realm=\"{{REALM}}\""
+            );
+        _catalog.Received().UpdateLastUpdated("Warlock", Arg.Any<DateTimeOffset>());
+        _logger.HasInformation(m => m.Contains("Updated character template")).ShouldBeTrue();
+    }
+
+    [Test]
+    public void UpdateAccountTemplate_ClearsContentAndReCapturesInPlace()
+    {
+        // Arrange
+        var template = Template(TemplateKind.Account);
+        _catalog.GetById("Warlock").Returns(template);
+        _fs.DirectoryExists(TemplateRoot + @"\Account").Returns(true);
+        _fs.DirectoryExists(AccountPath).Returns(true);
+        _fs.GetFiles(TemplateRoot + @"\Account", "*", SearchOption.AllDirectories).Returns([]);
+        _layout
+            .CollectAccountSettingsRelativePaths(AccountPath)
+            .Returns([@"SavedVariables\Addon.lua"]);
+
+        // Act
+        _sut.UpdateAccountTemplate(template, SourceAccount);
+
+        // Assert
+        _fs.Received().DeleteDirectory(TemplateRoot + @"\Account", true);
+        _fs.Received()
+            .CopyFile(
+                @"C:\WTF\Account\MainAccount\SavedVariables\Addon.lua",
+                @"C:\Profiles\.templates\Warlock\Account\SavedVariables\Addon.lua"
+            );
+        _catalog.Received().UpdateLastUpdated("Warlock", Arg.Any<DateTimeOffset>());
+        _logger.HasInformation(m => m.Contains("Updated account template")).ShouldBeTrue();
+    }
 }

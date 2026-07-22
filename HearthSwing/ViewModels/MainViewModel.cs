@@ -32,6 +32,7 @@ public partial class MainViewModel : ObservableObject
     private WowAccount? _pendingLiveAccount;
     private string _templateToRenameId = string.Empty;
     private string _versionHistoryTemplateId = string.Empty;
+    private string _templateBeingUpdatedId = string.Empty;
     private CancellationTokenSource? _unlockCts;
     private CancellationTokenSource? _monitorCts;
     private CancellationTokenSource? _saveSelectionLoadCts;
@@ -152,6 +153,13 @@ public partial class MainViewModel : ObservableObject
     private bool _isTemplateCreateVisible;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsCreatingNewTemplate))]
+    private bool _isUpdatingTemplate;
+
+    [ObservableProperty]
+    private string _templateCreateTitle = "Create Template";
+
+    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsCreatingAccountTemplate))]
     [NotifyPropertyChangedFor(nameof(IsCreatingCharacterTemplate))]
     [NotifyPropertyChangedFor(nameof(CanConfirmCreateTemplate))]
@@ -228,6 +236,8 @@ public partial class MainViewModel : ObservableObject
     public bool IsAccountsMode => ActiveMode == AppMode.Accounts;
 
     public bool IsTemplatesMode => ActiveMode == AppMode.Templates;
+
+    public bool IsCreatingNewTemplate => !IsUpdatingTemplate;
 
     public bool IsCreatingAccountTemplate => CreateTemplateKind == TemplateKind.Account;
 
@@ -948,6 +958,9 @@ public partial class MainViewModel : ObservableObject
         if (!EnsureLiveInstallation())
             return;
 
+        _templateBeingUpdatedId = string.Empty;
+        IsUpdatingTemplate = false;
+        TemplateCreateTitle = "Create Template";
         NewTemplateName = string.Empty;
         SelectedDonorCharacter = null;
         SelectedDonorAccount = null;
@@ -959,13 +972,56 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private void OpenUpdateTemplate(string templateId)
+    {
+        var template = Templates.FirstOrDefault(candidate => candidate.Id == templateId);
+        if (template is null)
+            return;
+        if (GuardWowRunning("Close the game before updating a template."))
+            return;
+        if (!EnsureLiveInstallation())
+            return;
+
+        _templateBeingUpdatedId = template.Id;
+        IsUpdatingTemplate = true;
+        TemplateCreateTitle = $"Update '{template.Name}'";
+        NewTemplateName = template.Name;
+        DonorSearchText = string.Empty;
+        CreateTemplateKind = template.Kind;
+
+        if (template.Kind == TemplateKind.Account)
+        {
+            BuildAccountList(DonorAccounts);
+            SelectedDonorCharacter = null;
+            SelectedDonorAccount = FindLiveAccount(template.SourceAccountName);
+        }
+        else
+        {
+            BuildCharacterTree(DonorCharacterTree);
+            SelectedDonorAccount = null;
+            SelectedDonorCharacter = FindLiveCharacter(
+                template.SourceAccountName,
+                template.SourceRealmName,
+                template.SourceCharacterName
+            );
+        }
+
+        IsTemplateCreateVisible = true;
+    }
+
+    [RelayCommand]
     private void SetCreateKindCharacter() => CreateTemplateKind = TemplateKind.Character;
 
     [RelayCommand]
     private void SetCreateKindAccount() => CreateTemplateKind = TemplateKind.Account;
 
     [RelayCommand]
-    private void CancelCreateTemplate() => IsTemplateCreateVisible = false;
+    private void CancelCreateTemplate()
+    {
+        IsTemplateCreateVisible = false;
+        IsUpdatingTemplate = false;
+        _templateBeingUpdatedId = string.Empty;
+    }
 
     [RelayCommand]
     private void ConfirmCreateTemplate()
@@ -996,6 +1052,53 @@ public partial class MainViewModel : ObservableObject
         {
             AppendLog($"ERROR: {ex.Message}");
             _dialogService.ShowWarning(ex.Message, "Create Template Error");
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task ConfirmUpdateTemplateAsync()
+    {
+        if (!CanConfirmCreateTemplate || string.IsNullOrEmpty(_templateBeingUpdatedId))
+            return;
+        if (GuardWowRunning("Close the game before updating a template."))
+            return;
+
+        var template = Templates.FirstOrDefault(candidate =>
+            candidate.Id == _templateBeingUpdatedId
+        );
+        if (template is null)
+            return;
+
+        IsBusy = true;
+        try
+        {
+            if (VersioningEnabled)
+            {
+                ArchivingTitle = $"Versioning '{template.Name}'...";
+                await RunTrackedArchiveAsync(
+                    _templateVersionService.CreateVersionAsync(template.Id)
+                );
+            }
+
+            if (template.Kind == TemplateKind.Account)
+                _templateCaptureService.UpdateAccountTemplate(template, SelectedDonorAccount!);
+            else
+                _templateCaptureService.UpdateCharacterTemplate(template, SelectedDonorCharacter!);
+
+            IsTemplateCreateVisible = false;
+            IsUpdatingTemplate = false;
+            _templateBeingUpdatedId = string.Empty;
+            RefreshTemplates();
+            StatusText = $"Template '{template.Name}' updated.";
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"ERROR: {ex.Message}");
+            _dialogService.ShowWarning(ex.Message, "Update Template Error");
         }
         finally
         {
@@ -1308,6 +1411,40 @@ public partial class MainViewModel : ObservableObject
         {
             destination.Add(account);
         }
+    }
+
+    private WowAccount? FindLiveAccount(string? accountName)
+    {
+        if (_installation is null || string.IsNullOrWhiteSpace(accountName))
+            return null;
+
+        return _installation.Accounts.FirstOrDefault(account =>
+            account.AccountName.Equals(accountName, StringComparison.OrdinalIgnoreCase)
+        );
+    }
+
+    private WowCharacter? FindLiveCharacter(
+        string? accountName,
+        string? realmName,
+        string? characterName
+    )
+    {
+        if (
+            _installation is null
+            || string.IsNullOrWhiteSpace(accountName)
+            || string.IsNullOrWhiteSpace(realmName)
+            || string.IsNullOrWhiteSpace(characterName)
+        )
+            return null;
+
+        return _installation
+            .Accounts.SelectMany(account => account.Realms)
+            .SelectMany(realm => realm.Characters)
+            .FirstOrDefault(character =>
+                character.AccountName.Equals(accountName, StringComparison.OrdinalIgnoreCase)
+                && character.RealmName.Equals(realmName, StringComparison.OrdinalIgnoreCase)
+                && character.CharacterName.Equals(characterName, StringComparison.OrdinalIgnoreCase)
+            );
     }
 
     partial void OnDonorSearchTextChanged(string value)

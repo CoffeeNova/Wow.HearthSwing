@@ -93,6 +93,45 @@ public sealed class TemplateCaptureService : ITemplateCaptureService
         return _catalog.GetById(template.Id) ?? template;
     }
 
+    public TemplateSummary UpdateAccountTemplate(TemplateSummary template, WowAccount source)
+    {
+        ArgumentNullException.ThrowIfNull(template);
+        ArgumentNullException.ThrowIfNull(source);
+
+        ClearContentFolder(Path.Combine(template.RootPath, TemplateLayout.AccountFolderName));
+        CaptureAccountSettings(source.FolderPath, template);
+
+        _catalog.UpdateLastUpdated(template.Id, DateTimeOffset.UtcNow);
+
+        _logger.LogInformation(
+            "Updated account template '{Name}' from account '{Account}'.",
+            template.Name,
+            source.AccountName
+        );
+
+        return _catalog.GetById(template.Id) ?? template;
+    }
+
+    public TemplateSummary UpdateCharacterTemplate(TemplateSummary template, WowCharacter source)
+    {
+        ArgumentNullException.ThrowIfNull(template);
+        ArgumentNullException.ThrowIfNull(source);
+
+        ClearContentFolder(Path.Combine(template.RootPath, TemplateLayout.CharacterFolderName));
+        CaptureCharacter(source, template);
+
+        _catalog.UpdateLastUpdated(template.Id, DateTimeOffset.UtcNow);
+
+        _logger.LogInformation(
+            "Updated character template '{Name}' from character '{Character}' on realm '{Realm}'.",
+            template.Name,
+            source.CharacterName,
+            source.RealmName
+        );
+
+        return _catalog.GetById(template.Id) ?? template;
+    }
+
     private void CaptureAccountSettings(string accountPath, TemplateSummary template)
     {
         if (!_fs.DirectoryExists(accountPath))
@@ -164,5 +203,20 @@ public sealed class TemplateCaptureService : ITemplateCaptureService
         var parent = Path.GetDirectoryName(filePath);
         if (!string.IsNullOrEmpty(parent) && !_fs.DirectoryExists(parent))
             _fs.CreateDirectory(parent);
+    }
+
+    private void ClearContentFolder(string folder)
+    {
+        if (!_fs.DirectoryExists(folder))
+            return;
+
+        foreach (var file in _fs.GetFiles(folder, "*", SearchOption.AllDirectories))
+        {
+            var attributes = _fs.GetAttributes(file);
+            if ((attributes & FileAttributes.ReadOnly) != 0)
+                _fs.SetAttributes(file, attributes & ~FileAttributes.ReadOnly);
+        }
+
+        _fs.DeleteDirectory(folder, recursive: true);
     }
 }

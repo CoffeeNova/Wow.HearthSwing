@@ -540,6 +540,17 @@
                         FontSize="11"
                       />
                       <Button
+                        Content="Update"
+                        Style="{StaticResource ActionBtn}"
+                        Background="{StaticResource DonkyBrush}"
+                        Command="{Binding DataContext.OpenUpdateTemplateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                        CommandParameter="{Binding Id}"
+                        ToolTip="Re-capture this template from a live character/account (a version is saved first)."
+                        Padding="10,3"
+                        Margin="0,0,4,0"
+                        FontSize="11"
+                      />
+                      <Button
                         Content="Versions"
                         Style="{StaticResource ActionBtn}"
                         Background="#6c5ce7"
@@ -1330,7 +1341,7 @@ Action bars are NOT transferred by templates. Use the ActionBarSaver addon to sa
 
           <TextBlock
             Grid.Row="0"
-            Text="Create Template"
+            Text="{Binding TemplateCreateTitle}"
             FontSize="16"
             FontWeight="Bold"
             Foreground="{StaticResource TextPrimary}"
@@ -1343,8 +1354,13 @@ Action bars are NOT transferred by templates. Use the ActionBarSaver addon to sa
               Foreground="{StaticResource TextSecondary}"
               FontSize="12"
               Margin="0,0,0,4"
+              Visibility="{Binding IsCreatingNewTemplate, Converter={StaticResource BoolToVis}}"
             />
-            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+            <StackPanel
+              Orientation="Horizontal"
+              Margin="0,0,0,8"
+              Visibility="{Binding IsCreatingNewTemplate, Converter={StaticResource BoolToVis}}"
+            >
               <Button
                 Content="Character"
                 Command="{Binding SetCreateKindCharacterCommand}"
@@ -1395,6 +1411,7 @@ Action bars are NOT transferred by templates. Use the ActionBarSaver addon to sa
               Text="{Binding NewTemplateName, UpdateSourceTrigger=PropertyChanged}"
               FontSize="13"
               Padding="4,3"
+              IsEnabled="{Binding IsCreatingNewTemplate}"
             />
             <TextBox
               Text="{Binding DonorSearchText, UpdateSourceTrigger=PropertyChanged}"
@@ -1463,6 +1480,17 @@ Action bars are NOT transferred by templates. Use the ActionBarSaver addon to sa
               Background="{StaticResource LaunchGreen}"
               Command="{Binding ConfirmCreateTemplateCommand}"
               IsEnabled="{Binding CanConfirmCreateTemplate}"
+              Visibility="{Binding IsCreatingNewTemplate, Converter={StaticResource BoolToVis}}"
+              MinWidth="80"
+              Margin="0,0,8,0"
+            />
+            <Button
+              Content="Update"
+              Style="{StaticResource ActionBtn}"
+              Background="{StaticResource LaunchGreen}"
+              Command="{Binding ConfirmUpdateTemplateCommand}"
+              IsEnabled="{Binding CanConfirmCreateTemplate}"
+              Visibility="{Binding IsUpdatingTemplate, Converter={StaticResource BoolToVis}}"
               MinWidth="80"
               Margin="0,0,8,0"
             />
