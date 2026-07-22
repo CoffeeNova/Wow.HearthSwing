@@ -4,10 +4,12 @@ using HearthSwing.Models.WoW;
 namespace HearthSwing.Services;
 
 /// <summary>
-/// Applies a stored template onto a live target character, re-personalizing tokenized content with
-/// the target character and realm names.
+/// Applies stored templates onto live targets: account templates overlay a target account's shared
+/// settings; character templates re-personalize tokenized content with the target's character/realm.
 /// </summary>
 public interface ITemplateApplyService
 {
-    void ApplyTemplate(TemplateSummary template, WowCharacter target, TemplateApplyOptions options);
+    void ApplyAccountTemplate(TemplateSummary template, WowAccount target);
+
+    void ApplyCharacterTemplate(TemplateSummary template, WowCharacter target);
 }

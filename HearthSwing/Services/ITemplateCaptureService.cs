@@ -4,9 +4,11 @@ using HearthSwing.Models.WoW;
 namespace HearthSwing.Services;
 
 /// <summary>
-/// Captures a depersonalized template from a live donor character.
+/// Captures templates from a live donor: an account's shared settings, or a depersonalized character.
 /// </summary>
 public interface ITemplateCaptureService
 {
-    TemplateSummary CreateTemplate(WowCharacter source, string templateName);
+    TemplateSummary CreateAccountTemplate(WowAccount source, string templateName);
+
+    TemplateSummary CreateCharacterTemplate(WowCharacter source, string templateName);
 }

@@ -723,15 +723,29 @@ public class MainViewModelTests
             FolderPath = @"C:\WTF\Account\MainAccount\Firemaw\Thrall",
         };
 
+    private static WowAccount SampleAccount =>
+        new() { AccountName = "MainAccount", FolderPath = @"C:\WTF\Account\MainAccount" };
+
     private static TemplateSummary SampleTemplate =>
         new()
         {
             Id = "warlock",
             Name = "Warlock - TBC",
+            Kind = TemplateKind.Character,
             RootPath = @"C:\Profiles\.templates\warlock",
             SourceAccountName = "MainAccount",
             SourceRealmName = "Firemaw",
             SourceCharacterName = "Thrall",
+        };
+
+    private static TemplateSummary SampleAccountTemplate =>
+        new()
+        {
+            Id = "acct",
+            Name = "Shared - Account",
+            Kind = TemplateKind.Account,
+            RootPath = @"C:\Profiles\.templates\acct",
+            SourceAccountName = "MainAccount",
         };
 
     [Test]
@@ -764,13 +778,14 @@ public class MainViewModelTests
     }
 
     [Test]
-    public void ConfirmCreateTemplate_WhenValid_CallsCaptureServiceAndRefreshes()
+    public void ConfirmCreateTemplate_WhenCharacterKind_CallsCaptureServiceAndRefreshes()
     {
         // Arrange
         _templateCaptureService
-            .CreateTemplate(Arg.Any<WowCharacter>(), "Warlock - TBC")
+            .CreateCharacterTemplate(Arg.Any<WowCharacter>(), "Warlock - TBC")
             .Returns(SampleTemplate);
         var sut = CreateSut();
+        sut.SetCreateKindCharacterCommand.Execute(null);
         sut.SelectedDonorCharacter = SampleCharacter;
         sut.NewTemplateName = "Warlock - TBC";
 
@@ -778,12 +793,36 @@ public class MainViewModelTests
         sut.ConfirmCreateTemplateCommand.Execute(null);
 
         // Assert
-        _templateCaptureService.Received().CreateTemplate(SampleCharacter, "Warlock - TBC");
-        sut.IsTemplateDonorSelectionVisible.ShouldBeFalse();
+        _templateCaptureService
+            .Received()
+            .CreateCharacterTemplate(SampleCharacter, "Warlock - TBC");
+        sut.IsTemplateCreateVisible.ShouldBeFalse();
     }
 
     [Test]
-    public void ConfirmApplyTemplate_WhenValid_CallsApplyService()
+    public void ConfirmCreateTemplate_WhenAccountKind_CallsAccountCaptureService()
+    {
+        // Arrange
+        _templateCaptureService
+            .CreateAccountTemplate(Arg.Any<WowAccount>(), "Shared - Account")
+            .Returns(SampleAccountTemplate);
+        var sut = CreateSut();
+        sut.SetCreateKindAccountCommand.Execute(null);
+        sut.SelectedDonorAccount = SampleAccount;
+        sut.NewTemplateName = "Shared - Account";
+
+        // Act
+        sut.ConfirmCreateTemplateCommand.Execute(null);
+
+        // Assert
+        _templateCaptureService
+            .Received()
+            .CreateAccountTemplate(SampleAccount, "Shared - Account");
+        sut.IsTemplateCreateVisible.ShouldBeFalse();
+    }
+
+    [Test]
+    public void ConfirmApplyTemplate_WhenCharacterTemplate_CallsCharacterApply()
     {
         // Arrange
         var template = SampleTemplate;
@@ -795,9 +834,25 @@ public class MainViewModelTests
         sut.ConfirmApplyTemplateCommand.Execute(null);
 
         // Assert
-        _templateApplyService
-            .Received()
-            .ApplyTemplate(template, SampleCharacter, Arg.Any<TemplateApplyOptions>());
+        _templateApplyService.Received().ApplyCharacterTemplate(template, SampleCharacter);
+        sut.IsTemplateApplyVisible.ShouldBeFalse();
+    }
+
+    [Test]
+    public void ConfirmApplyTemplate_WhenAccountTemplateConfirmed_CallsAccountApply()
+    {
+        // Arrange
+        _dialogService.Confirm(Arg.Any<string>(), Arg.Any<string>()).Returns(true);
+        var template = SampleAccountTemplate;
+        var sut = CreateSut();
+        sut.TemplateToApply = template;
+        sut.SelectedTargetAccount = SampleAccount;
+
+        // Act
+        sut.ConfirmApplyTemplateCommand.Execute(null);
+
+        // Assert
+        _templateApplyService.Received().ApplyAccountTemplate(template, SampleAccount);
         sut.IsTemplateApplyVisible.ShouldBeFalse();
     }
 
@@ -816,22 +871,17 @@ public class MainViewModelTests
         // Assert
         _templateApplyService
             .DidNotReceive()
-            .ApplyTemplate(
-                Arg.Any<TemplateSummary>(),
-                Arg.Any<WowCharacter>(),
-                Arg.Any<TemplateApplyOptions>()
-            );
+            .ApplyCharacterTemplate(Arg.Any<TemplateSummary>(), Arg.Any<WowCharacter>());
     }
 
     [Test]
-    public void ConfirmApplyTemplate_WhenIncludeAccountSettingsDeclined_DoesNotApply()
+    public void ConfirmApplyTemplate_WhenAccountTemplateDeclined_DoesNotApply()
     {
         // Arrange
         _dialogService.Confirm(Arg.Any<string>(), Arg.Any<string>()).Returns(false);
         var sut = CreateSut();
-        sut.TemplateToApply = SampleTemplate;
-        sut.SelectedTargetCharacter = SampleCharacter;
-        sut.IncludeAccountSettings = true;
+        sut.TemplateToApply = SampleAccountTemplate;
+        sut.SelectedTargetAccount = SampleAccount;
 
         // Act
         sut.ConfirmApplyTemplateCommand.Execute(null);
@@ -839,11 +889,7 @@ public class MainViewModelTests
         // Assert
         _templateApplyService
             .DidNotReceive()
-            .ApplyTemplate(
-                Arg.Any<TemplateSummary>(),
-                Arg.Any<WowCharacter>(),
-                Arg.Any<TemplateApplyOptions>()
-            );
+            .ApplyAccountTemplate(Arg.Any<TemplateSummary>(), Arg.Any<WowAccount>());
     }
 
     [Test]

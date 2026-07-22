@@ -428,7 +428,7 @@
             FontWeight="SemiBold"
           />
           <TextBlock
-            Text="Create a depersonalized template from a character, then apply it to any other character on any account or realm."
+            Text="Create an account or character template, then apply it to any other account or character. Apply restores the files just like the Restore button; Launch WoW locks the cache against server sync."
             Foreground="{StaticResource TextSecondary}"
             FontSize="11"
             TextWrapping="Wrap"
@@ -436,16 +436,34 @@
           />
         </StackPanel>
 
-        <Button
-          Grid.Row="1"
-          Content="&#x2795; Create Template"
-          Style="{StaticResource ActionBtn}"
-          Background="{StaticResource DonkyBrush}"
-          Command="{Binding OpenCreateTemplateCommand}"
-          HorizontalAlignment="Left"
-          Margin="0,10,0,6"
-          MinWidth="150"
-        />
+        <WrapPanel Grid.Row="1" Margin="0,10,0,6">
+          <Button
+            Content="&#x1F680; Launch WoW"
+            Style="{StaticResource ActionBtn}"
+            Background="{StaticResource LaunchGreen}"
+            Command="{Binding LaunchWowCommand}"
+            Margin="0,0,4,4"
+            MinWidth="130"
+          />
+          <Button
+            Content="&#x1F513; Unlock"
+            Style="{StaticResource ActionBtn}"
+            Background="{StaticResource WarningOrange}"
+            Foreground="#2d3436"
+            Command="{Binding ForceUnlockCommand}"
+            Visibility="{Binding IsCacheLocked, Converter={StaticResource BoolToVis}}"
+            Margin="0,0,4,4"
+            MinWidth="90"
+          />
+          <Button
+            Content="&#x2795; Create Template"
+            Style="{StaticResource ActionBtn}"
+            Background="{StaticResource DonkyBrush}"
+            Command="{Binding OpenCreateTemplateCommand}"
+            Margin="0,0,0,4"
+            MinWidth="150"
+          />
+        </WrapPanel>
 
         <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
           <ItemsControl ItemsSource="{Binding Templates}">
@@ -478,12 +496,29 @@
                   Margin="0,0,0,6"
                 >
                   <StackPanel>
-                    <TextBlock
-                      Text="{Binding Name}"
-                      Foreground="{StaticResource TextPrimary}"
-                      FontSize="14"
-                      FontWeight="SemiBold"
-                    />
+                    <StackPanel Orientation="Horizontal">
+                      <Border
+                        Background="{StaticResource PanelBg}"
+                        CornerRadius="3"
+                        Padding="5,1"
+                        Margin="0,0,6,0"
+                        VerticalAlignment="Center"
+                      >
+                        <TextBlock
+                          Text="{Binding KindLabel}"
+                          Foreground="{StaticResource DonkyBrush}"
+                          FontSize="10"
+                          FontWeight="SemiBold"
+                        />
+                      </Border>
+                      <TextBlock
+                        Text="{Binding Name}"
+                        Foreground="{StaticResource TextPrimary}"
+                        FontSize="14"
+                        FontWeight="SemiBold"
+                        VerticalAlignment="Center"
+                      />
+                    </StackPanel>
                     <TextBlock
                       Foreground="{StaticResource TextSecondary}"
                       FontSize="10"
@@ -491,9 +526,7 @@
                       Margin="0,2,0,6"
                     >
                       <Run Text="from " />
-                      <Run Text="{Binding SourceCharacterName, Mode=OneWay}" />
-                      <Run Text=" - " />
-                      <Run Text="{Binding SourceRealmName, Mode=OneWay}" />
+                      <Run Text="{Binding SourceDescription, Mode=OneWay}" />
                     </TextBlock>
                     <WrapPanel>
                       <Button
@@ -619,6 +652,7 @@
         Style="{StaticResource LinkBtn}"
         Command="{Binding ToggleVersionHistoryCommand}"
         Margin="0,0,8,0"
+        Visibility="{Binding IsAccountsMode, Converter={StaticResource BoolToVis}}"
       />
       <Button
         Content="About"
@@ -852,12 +886,14 @@
             Margin="0,0,0,12"
           />
           <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,0,12">
+            <StackPanel>
             <TextBlock
               Foreground="{StaticResource TextSecondary}"
               FontSize="12"
               TextWrapping="Wrap"
               LineHeight="20"
               xml:space="preserve"
+              Visibility="{Binding IsAccountsMode, Converter={StaticResource BoolToVis}}"
             >
               <Run
                 FontWeight="SemiBold"
@@ -901,6 +937,56 @@ If Save on Exit is enabled, HearthSwing compares the live account against the ac
               />
 HearthSwing transfers macros, keybindings, edit mode layout, and addon settings. Action bars are NOT transferred. Use the ActionBarSaver addon (for TBC Anniversary: ActionBarSaver Reloaded) to save/restore action bars separately.</TextBlock
             >
+            <TextBlock
+              Foreground="{StaticResource TextSecondary}"
+              FontSize="12"
+              TextWrapping="Wrap"
+              LineHeight="20"
+              xml:space="preserve"
+              Visibility="{Binding IsTemplatesMode, Converter={StaticResource BoolToVis}}"
+            ><Run
+                FontWeight="SemiBold"
+                Text="Templates: what they are"
+              />
+Templates let you reuse one character's setup (macros, keybindings, edit mode, addon settings) across many characters, accounts and realms. There are two separate template types: Character templates and Account templates.
+
+<Run
+                FontWeight="SemiBold"
+                Text="1. Character template"
+              />
+Click "Create Template", choose "Character", pick a donor character from the account/realm/character tree (use the search box to filter), give it a name, and Create. HearthSwing depersonalizes it, replacing the donor character and realm names with tokens so it can be reused anywhere.
+
+<Run
+                FontWeight="SemiBold"
+                Text="2. Account template"
+              />
+Choose "Account" instead to capture only the shared account-level settings (account SavedVariables and account root files). Account templates are applied to a whole account and overwrite settings shared by every character on that account.
+
+<Run
+                FontWeight="SemiBold"
+                Text="3. Apply a template"
+              />
+Click "Apply" on a template card. Character templates ask for a target character (tree + search); account templates ask for a target account. Applying restores the template files into WTF using the same file-swap mechanism as Restore. Type /reload in WoW afterwards.
+
+<Run
+                FontWeight="SemiBold"
+                Text="4. Launch WoW and cache protection"
+              />
+The Launch WoW button on this tab works exactly like on the Accounts tab: it locks the cache files read-only to stop the server from overwriting your local settings. Use Unlock to release early.
+
+<Run
+                FontWeight="SemiBold"
+                Text="5. Versions"
+              />
+Each template keeps its own version history (the "Versions" button on each card). Rename or Delete a template from its card.
+
+<Run
+                FontWeight="SemiBold"
+                Text="Note:"
+              />
+Action bars are NOT transferred by templates. Use the ActionBarSaver addon to save/restore action bars separately.</TextBlock
+            >
+            </StackPanel>
           </ScrollViewer>
           <Button
             Grid.Row="2"
@@ -1227,7 +1313,7 @@ HearthSwing transfers macros, keybindings, edit mode layout, and addon settings.
       Grid.RowSpan="9"
       Background="#ee1a1a2e"
       CornerRadius="8"
-      Visibility="{Binding IsTemplateDonorSelectionVisible, Converter={StaticResource BoolToVis}}"
+      Visibility="{Binding IsTemplateCreateVisible, Converter={StaticResource BoolToVis}}"
       Padding="20"
       VerticalAlignment="Center"
       HorizontalAlignment="Center"
@@ -1253,6 +1339,53 @@ HearthSwing transfers macros, keybindings, edit mode layout, and addon settings.
 
           <StackPanel Grid.Row="1" Margin="0,0,0,8">
             <TextBlock
+              Text="Template type:"
+              Foreground="{StaticResource TextSecondary}"
+              FontSize="12"
+              Margin="0,0,0,4"
+            />
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+              <Button
+                Content="Character"
+                Command="{Binding SetCreateKindCharacterCommand}"
+                Background="{StaticResource CardBg}"
+                BorderBrush="{StaticResource DonkyBrush}"
+                BorderThickness="1"
+                Padding="12,5"
+                Margin="0,0,6,0"
+                MinWidth="90"
+              >
+                <Button.Style>
+                  <Style TargetType="Button" BasedOn="{StaticResource ActionBtn}">
+                    <Setter Property="Opacity" Value="1" />
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding IsCreatingCharacterTemplate}" Value="False">
+                        <Setter Property="Opacity" Value="0.45" />
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </Button.Style>
+              </Button>
+              <Button
+                Content="Account"
+                Command="{Binding SetCreateKindAccountCommand}"
+                Background="{StaticResource CardBg}"
+                Padding="12,5"
+                MinWidth="90"
+              >
+                <Button.Style>
+                  <Style TargetType="Button" BasedOn="{StaticResource ActionBtn}">
+                    <Setter Property="Opacity" Value="1" />
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding IsCreatingAccountTemplate}" Value="False">
+                        <Setter Property="Opacity" Value="0.45" />
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </Button.Style>
+              </Button>
+            </StackPanel>
+            <TextBlock
               Text="Template name:"
               Foreground="{StaticResource TextSecondary}"
               FontSize="12"
@@ -1263,36 +1396,65 @@ HearthSwing transfers macros, keybindings, edit mode layout, and addon settings.
               FontSize="13"
               Padding="4,3"
             />
-            <TextBlock
-              Text="Donor character:"
-              Foreground="{StaticResource TextSecondary}"
+            <TextBox
+              Text="{Binding DonorSearchText, UpdateSourceTrigger=PropertyChanged}"
               FontSize="12"
-              Margin="0,10,0,4"
+              Padding="4,3"
+              Margin="0,10,0,0"
+              ToolTip="Search"
             />
           </StackPanel>
 
-          <ListBox
-            Grid.Row="2"
-            ItemsSource="{Binding LiveCharacters}"
-            SelectedItem="{Binding SelectedDonorCharacter}"
-            Background="{StaticResource PanelBg}"
-            Foreground="{StaticResource TextPrimary}"
-            BorderThickness="0"
-            MaxHeight="240"
-          >
-            <ListBox.ItemTemplate>
-              <DataTemplate>
-                <TextBlock FontSize="12" Foreground="{StaticResource TextPrimary}">
-                  <Run Text="{Binding CharacterName, Mode=OneWay}" FontWeight="SemiBold" />
-                  <Run Text=" — " />
-                  <Run Text="{Binding RealmName, Mode=OneWay}" />
-                  <Run Text="  (" />
-                  <Run Text="{Binding AccountName, Mode=OneWay}" />
-                  <Run Text=")" />
-                </TextBlock>
-              </DataTemplate>
-            </ListBox.ItemTemplate>
-          </ListBox>
+          <Grid Grid.Row="2">
+            <TreeView
+              x:Name="DonorTreeView"
+              ItemsSource="{Binding DonorCharacterTree}"
+              SelectedItemChanged="OnDonorTreeSelectedItemChanged"
+              Background="{StaticResource PanelBg}"
+              Foreground="{StaticResource TextPrimary}"
+              BorderThickness="0"
+              MaxHeight="240"
+              Visibility="{Binding IsCreatingCharacterTemplate, Converter={StaticResource BoolToVis}}"
+            >
+              <TreeView.ItemContainerStyle>
+                <Style TargetType="TreeViewItem">
+                  <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                  <Setter Property="Visibility" Value="{Binding IsVisible, Converter={StaticResource BoolToVis}}" />
+                  <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+                </Style>
+              </TreeView.ItemContainerStyle>
+              <TreeView.ItemTemplate>
+                <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                  <TextBlock
+                    Text="{Binding Label}"
+                    Foreground="{StaticResource TextPrimary}"
+                    FontSize="12"
+                  />
+                </HierarchicalDataTemplate>
+              </TreeView.ItemTemplate>
+            </TreeView>
+
+            <ListBox
+              ItemsSource="{Binding DonorAccounts}"
+              SelectedItem="{Binding SelectedDonorAccount}"
+              Background="{StaticResource PanelBg}"
+              Foreground="{StaticResource TextPrimary}"
+              BorderThickness="0"
+              MaxHeight="240"
+              Visibility="{Binding IsCreatingAccountTemplate, Converter={StaticResource BoolToVis}}"
+            >
+              <ListBox.ItemTemplate>
+                <DataTemplate>
+                  <TextBlock
+                    Text="{Binding AccountName}"
+                    FontSize="12"
+                    FontWeight="SemiBold"
+                    Foreground="{StaticResource TextPrimary}"
+                  />
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+          </Grid>
 
           <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
             <Button
@@ -1335,7 +1497,6 @@ HearthSwing transfers macros, keybindings, edit mode layout, and addon settings.
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
           </Grid.RowDefinitions>
 
           <TextBlock
@@ -1347,47 +1508,76 @@ HearthSwing transfers macros, keybindings, edit mode layout, and addon settings.
             Margin="0,0,0,12"
           />
 
-          <TextBlock
-            Grid.Row="1"
-            Text="Target character:"
-            Foreground="{StaticResource TextSecondary}"
-            FontSize="12"
-            Margin="0,0,0,4"
-          />
+          <StackPanel Grid.Row="1" Margin="0,0,0,8">
+            <TextBlock
+              Foreground="{StaticResource TextSecondary}"
+              FontSize="12"
+              Margin="0,0,0,4"
+            >
+              <Run Text="Target " />
+              <Run Text="{Binding TemplateToApply.KindLabel, Mode=OneWay, FallbackValue=item}" />
+              <Run Text=":" />
+            </TextBlock>
+            <TextBox
+              Text="{Binding TargetSearchText, UpdateSourceTrigger=PropertyChanged}"
+              FontSize="12"
+              Padding="4,3"
+              ToolTip="Search"
+            />
+          </StackPanel>
 
-          <ListBox
-            Grid.Row="2"
-            ItemsSource="{Binding LiveCharacters}"
-            SelectedItem="{Binding SelectedTargetCharacter}"
-            Background="{StaticResource PanelBg}"
-            Foreground="{StaticResource TextPrimary}"
-            BorderThickness="0"
-            MaxHeight="240"
-          >
-            <ListBox.ItemTemplate>
-              <DataTemplate>
-                <TextBlock FontSize="12" Foreground="{StaticResource TextPrimary}">
-                  <Run Text="{Binding CharacterName, Mode=OneWay}" FontWeight="SemiBold" />
-                  <Run Text=" — " />
-                  <Run Text="{Binding RealmName, Mode=OneWay}" />
-                  <Run Text="  (" />
-                  <Run Text="{Binding AccountName, Mode=OneWay}" />
-                  <Run Text=")" />
-                </TextBlock>
-              </DataTemplate>
-            </ListBox.ItemTemplate>
-          </ListBox>
+          <Grid Grid.Row="2">
+            <TreeView
+              x:Name="TargetTreeView"
+              ItemsSource="{Binding TargetCharacterTree}"
+              SelectedItemChanged="OnTargetTreeSelectedItemChanged"
+              Background="{StaticResource PanelBg}"
+              Foreground="{StaticResource TextPrimary}"
+              BorderThickness="0"
+              MaxHeight="240"
+              Visibility="{Binding IsApplyingCharacterTemplate, Converter={StaticResource BoolToVis}}"
+            >
+              <TreeView.ItemContainerStyle>
+                <Style TargetType="TreeViewItem">
+                  <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                  <Setter Property="Visibility" Value="{Binding IsVisible, Converter={StaticResource BoolToVis}}" />
+                  <Setter Property="Foreground" Value="{StaticResource TextPrimary}" />
+                </Style>
+              </TreeView.ItemContainerStyle>
+              <TreeView.ItemTemplate>
+                <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                  <TextBlock
+                    Text="{Binding Label}"
+                    Foreground="{StaticResource TextPrimary}"
+                    FontSize="12"
+                  />
+                </HierarchicalDataTemplate>
+              </TreeView.ItemTemplate>
+            </TreeView>
 
-          <CheckBox
-            Grid.Row="3"
-            Content="Also apply account-level settings (overwrites shared SavedVariables)"
-            IsChecked="{Binding IncludeAccountSettings}"
-            Foreground="{StaticResource WarningOrange}"
-            FontSize="11"
-            Margin="0,10,0,0"
-          />
+            <ListBox
+              ItemsSource="{Binding TargetAccounts}"
+              SelectedItem="{Binding SelectedTargetAccount}"
+              Background="{StaticResource PanelBg}"
+              Foreground="{StaticResource TextPrimary}"
+              BorderThickness="0"
+              MaxHeight="240"
+              Visibility="{Binding IsApplyingAccountTemplate, Converter={StaticResource BoolToVis}}"
+            >
+              <ListBox.ItemTemplate>
+                <DataTemplate>
+                  <TextBlock
+                    Text="{Binding AccountName}"
+                    FontSize="12"
+                    FontWeight="SemiBold"
+                    Foreground="{StaticResource TextPrimary}"
+                  />
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+          </Grid>
 
-          <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+          <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
             <Button
               Content="Apply"
               Style="{StaticResource ActionBtn}"

@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using HearthSwing.Models.Templates;
 using Microsoft.Extensions.Logging;
 
@@ -20,6 +21,7 @@ public sealed class TemplateCatalog : ITemplateCatalog
     {
         WriteIndented = true,
         PropertyNameCaseInsensitive = true,
+        Converters = { new JsonStringEnumConverter() },
     };
 
     private readonly ISettingsService _settings;
@@ -75,9 +77,10 @@ public sealed class TemplateCatalog : ITemplateCatalog
 
     public TemplateSummary Create(
         string name,
+        TemplateKind kind,
         string sourceAccountName,
-        string sourceRealmName,
-        string sourceCharacterName
+        string? sourceRealmName,
+        string? sourceCharacterName
     )
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -96,6 +99,7 @@ public sealed class TemplateCatalog : ITemplateCatalog
         {
             Id = templateId,
             Name = normalizedName,
+            Kind = kind,
             SourceAccountName = sourceAccountName,
             SourceRealmName = sourceRealmName,
             SourceCharacterName = sourceCharacterName,
@@ -141,6 +145,7 @@ public sealed class TemplateCatalog : ITemplateCatalog
         {
             Id = source.Id,
             Name = name,
+            Kind = source.Kind,
             SourceAccountName = source.SourceAccountName,
             SourceRealmName = source.SourceRealmName,
             SourceCharacterName = source.SourceCharacterName,
@@ -254,6 +259,7 @@ public sealed class TemplateCatalog : ITemplateCatalog
         {
             Id = metadata.Id,
             Name = metadata.Name,
+            Kind = metadata.Kind,
             RootPath = rootPath,
             SourceAccountName = metadata.SourceAccountName,
             SourceRealmName = metadata.SourceRealmName,

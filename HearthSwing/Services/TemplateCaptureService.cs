@@ -6,9 +6,9 @@ using Microsoft.Extensions.Logging;
 namespace HearthSwing.Services;
 
 /// <summary>
-/// Builds a depersonalized template from a donor character: account-level settings plus the donor's
-/// character folder, with the donor's character and realm names tokenized inside text files and
-/// replaced with token folder names on disk.
+/// Builds templates from a live donor. Account templates copy the account's shared settings as-is.
+/// Character templates capture a single character folder, tokenizing the donor's character and realm
+/// names inside text files and replacing them with token folder names on disk.
 /// </summary>
 public sealed class TemplateCaptureService : ITemplateCaptureService
 {
@@ -36,7 +36,7 @@ public sealed class TemplateCaptureService : ITemplateCaptureService
         _logger = logger;
     }
 
-    public TemplateSummary CreateTemplate(WowCharacter source, string templateName)
+    public TemplateSummary CreateAccountTemplate(WowAccount source, string templateName)
     {
         ArgumentNullException.ThrowIfNull(source);
 
@@ -45,18 +45,46 @@ public sealed class TemplateCaptureService : ITemplateCaptureService
 
         var template = _catalog.Create(
             templateName,
+            TemplateKind.Account,
+            source.AccountName,
+            sourceRealmName: null,
+            sourceCharacterName: null
+        );
+
+        CaptureAccountSettings(source.FolderPath, template);
+
+        _catalog.UpdateLastUpdated(template.Id, DateTimeOffset.UtcNow);
+
+        _logger.LogInformation(
+            "Captured account template '{Name}' from account '{Account}'.",
+            template.Name,
+            source.AccountName
+        );
+
+        return _catalog.GetById(template.Id) ?? template;
+    }
+
+    public TemplateSummary CreateCharacterTemplate(WowCharacter source, string templateName)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        if (string.IsNullOrWhiteSpace(templateName))
+            throw new ArgumentException("Template name is required.", nameof(templateName));
+
+        var template = _catalog.Create(
+            templateName,
+            TemplateKind.Character,
             source.AccountName,
             source.RealmName,
             source.CharacterName
         );
 
-        CaptureAccountSettings(source, template);
         CaptureCharacter(source, template);
 
         _catalog.UpdateLastUpdated(template.Id, DateTimeOffset.UtcNow);
 
         _logger.LogInformation(
-            "Captured template '{Name}' from character '{Character}' on realm '{Realm}'.",
+            "Captured character template '{Name}' from character '{Character}' on realm '{Realm}'.",
             template.Name,
             source.CharacterName,
             source.RealmName
@@ -65,22 +93,22 @@ public sealed class TemplateCaptureService : ITemplateCaptureService
         return _catalog.GetById(template.Id) ?? template;
     }
 
-    private void CaptureAccountSettings(WowCharacter source, TemplateSummary template)
+    private void CaptureAccountSettings(string accountPath, TemplateSummary template)
     {
-        var accountPath = GetAccountPath(source.FolderPath);
-        if (accountPath is null || !_fs.DirectoryExists(accountPath))
+        if (!_fs.DirectoryExists(accountPath))
             return;
 
         var destinationRoot = Path.Combine(template.RootPath, TemplateLayout.AccountFolderName);
 
         foreach (var relativePath in _layout.CollectAccountSettingsRelativePaths(accountPath))
         {
-            CaptureFile(
-                Path.Combine(accountPath, relativePath),
-                Path.Combine(destinationRoot, relativePath),
-                relativePath,
-                source
-            );
+            var sourceFile = Path.Combine(accountPath, relativePath);
+            if (!_fs.FileExists(sourceFile))
+                continue;
+
+            var destinationFile = Path.Combine(destinationRoot, relativePath);
+            EnsureParentDirectory(destinationFile);
+            _fs.CopyFile(sourceFile, destinationFile);
         }
     }
 
@@ -98,7 +126,7 @@ public sealed class TemplateCaptureService : ITemplateCaptureService
 
         foreach (var relativePath in _layout.CollectCharacterRelativePaths(source.FolderPath))
         {
-            CaptureFile(
+            CaptureCharacterFile(
                 Path.Combine(source.FolderPath, relativePath),
                 Path.Combine(destinationRoot, relativePath),
                 relativePath,
@@ -107,7 +135,7 @@ public sealed class TemplateCaptureService : ITemplateCaptureService
         }
     }
 
-    private void CaptureFile(
+    private void CaptureCharacterFile(
         string sourceFile,
         string destinationFile,
         string relativePath,
@@ -136,11 +164,5 @@ public sealed class TemplateCaptureService : ITemplateCaptureService
         var parent = Path.GetDirectoryName(filePath);
         if (!string.IsNullOrEmpty(parent) && !_fs.DirectoryExists(parent))
             _fs.CreateDirectory(parent);
-    }
-
-    private static string? GetAccountPath(string characterFolderPath)
-    {
-        var realmFolder = Path.GetDirectoryName(characterFolderPath);
-        return realmFolder is null ? null : Path.GetDirectoryName(realmFolder);
     }
 }

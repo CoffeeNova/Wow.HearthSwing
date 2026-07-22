@@ -13,9 +13,10 @@ public interface ITemplateCatalog
 
     TemplateSummary Create(
         string name,
+        TemplateKind kind,
         string sourceAccountName,
-        string sourceRealmName,
-        string sourceCharacterName
+        string? sourceRealmName,
+        string? sourceCharacterName
     );
 
     void UpdateLastUpdated(string templateId, DateTimeOffset updatedAtUtc);

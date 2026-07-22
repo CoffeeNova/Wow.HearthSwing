@@ -38,18 +38,6 @@ public class TemplateCaptureServiceTests
         _layout.CollectAccountSettingsRelativePaths(Arg.Any<string>()).Returns([]);
         _layout.CollectCharacterRelativePaths(Arg.Any<string>()).Returns([]);
 
-        var template = new TemplateSummary
-        {
-            Id = "Warlock",
-            Name = "Warlock - TBC",
-            RootPath = TemplateRoot,
-            SourceAccountName = "MainAccount",
-            SourceRealmName = "Firemaw",
-            SourceCharacterName = "Thrall",
-        };
-        _catalog.Create("Warlock - TBC", "MainAccount", "Firemaw", "Thrall").Returns(template);
-        _catalog.GetById("Warlock").Returns(template);
-
         _sut = new TemplateCaptureService(
             _catalog,
             _layout,
@@ -60,7 +48,19 @@ public class TemplateCaptureServiceTests
         );
     }
 
-    private WowCharacter Source =>
+    private static TemplateSummary Template(TemplateKind kind) =>
+        new()
+        {
+            Id = "Warlock",
+            Name = "Warlock - TBC",
+            Kind = kind,
+            RootPath = TemplateRoot,
+            SourceAccountName = "MainAccount",
+            SourceRealmName = kind == TemplateKind.Character ? "Firemaw" : null,
+            SourceCharacterName = kind == TemplateKind.Character ? "Thrall" : null,
+        };
+
+    private WowCharacter SourceCharacter =>
         new()
         {
             AccountName = "MainAccount",
@@ -69,37 +69,39 @@ public class TemplateCaptureServiceTests
             FolderPath = CharFolder,
         };
 
-    [Test]
-    public void CreateTemplate_TokenizesAccountTextFilesUnderAccountFolder()
+    private WowAccount SourceAccount =>
+        new() { AccountName = "MainAccount", FolderPath = AccountPath };
+
+    private void StubCharacterCatalog()
     {
-        // Arrange
-        _fs.DirectoryExists(AccountPath).Returns(true);
-        _layout
-            .CollectAccountSettingsRelativePaths(AccountPath)
-            .Returns([@"SavedVariables\Addon.lua"]);
+        var template = Template(TemplateKind.Character);
+        _catalog
+            .Create("Warlock - TBC", TemplateKind.Character, "MainAccount", "Firemaw", "Thrall")
+            .Returns(template);
+        _catalog.GetById("Warlock").Returns(template);
+    }
 
-        // Act
-        _sut.CreateTemplate(Source, "Warlock - TBC");
-
-        // Assert
-        _fs.Received()
-            .WriteAllText(
-                @"C:\Profiles\.templates\Warlock\Account\SavedVariables\Addon.lua",
-                "name=\"{{CHAR}}\" realm=\"{{REALM}}\""
-            );
+    private void StubAccountCatalog()
+    {
+        var template = Template(TemplateKind.Account);
+        _catalog
+            .Create("Warlock - TBC", TemplateKind.Account, "MainAccount", null, null)
+            .Returns(template);
+        _catalog.GetById("Warlock").Returns(template);
     }
 
     [Test]
-    public void CreateTemplate_TokenizesCharacterFilesUnderTokenFolders()
+    public void CreateCharacterTemplate_TokenizesCharacterFilesUnderTokenFolders()
     {
         // Arrange
+        StubCharacterCatalog();
         _fs.DirectoryExists(CharFolder).Returns(true);
         _layout
             .CollectCharacterRelativePaths(CharFolder)
             .Returns([@"SavedVariables\CharAddon.lua"]);
 
         // Act
-        _sut.CreateTemplate(Source, "Warlock - TBC");
+        _sut.CreateCharacterTemplate(SourceCharacter, "Warlock - TBC");
 
         // Assert
         _fs.Received()
@@ -110,14 +112,15 @@ public class TemplateCaptureServiceTests
     }
 
     [Test]
-    public void CreateTemplate_CopiesNonTokenizableFilesByteForByte()
+    public void CreateCharacterTemplate_CopiesNonTokenizableFilesByteForByte()
     {
         // Arrange
+        StubCharacterCatalog();
         _fs.DirectoryExists(CharFolder).Returns(true);
         _layout.CollectCharacterRelativePaths(CharFolder).Returns(["cache.md5"]);
 
         // Act
-        _sut.CreateTemplate(Source, "Warlock - TBC");
+        _sut.CreateCharacterTemplate(SourceCharacter, "Warlock - TBC");
 
         // Assert
         _fs.Received()
@@ -130,24 +133,55 @@ public class TemplateCaptureServiceTests
     }
 
     [Test]
-    public void CreateTemplate_UpdatesLastUpdatedAndReturnsSummary()
+    public void CreateCharacterTemplate_UpdatesLastUpdatedAndReturnsSummary()
     {
         // Arrange
+        StubCharacterCatalog();
         _fs.DirectoryExists(CharFolder).Returns(true);
 
         // Act
-        var result = _sut.CreateTemplate(Source, "Warlock - TBC");
+        var result = _sut.CreateCharacterTemplate(SourceCharacter, "Warlock - TBC");
 
         // Assert
         result.Id.ShouldBe("Warlock");
         _catalog.Received().UpdateLastUpdated("Warlock", Arg.Any<DateTimeOffset>());
-        _logger.HasInformation(m => m.Contains("Captured template")).ShouldBeTrue();
+        _logger.HasInformation(m => m.Contains("Captured character template")).ShouldBeTrue();
     }
 
     [Test]
-    public void CreateTemplate_WhenTemplateNameBlank_Throws()
+    public void CreateAccountTemplate_CopiesAccountFilesUnderAccountFolderWithoutTokenizing()
+    {
+        // Arrange
+        StubAccountCatalog();
+        _fs.DirectoryExists(AccountPath).Returns(true);
+        _layout
+            .CollectAccountSettingsRelativePaths(AccountPath)
+            .Returns([@"SavedVariables\Addon.lua"]);
+
+        // Act
+        _sut.CreateAccountTemplate(SourceAccount, "Warlock - TBC");
+
+        // Assert
+        _fs.Received()
+            .CopyFile(
+                @"C:\WTF\Account\MainAccount\SavedVariables\Addon.lua",
+                @"C:\Profiles\.templates\Warlock\Account\SavedVariables\Addon.lua"
+            );
+        _fs.DidNotReceive().WriteAllText(Arg.Any<string>(), Arg.Any<string>());
+        _logger.HasInformation(m => m.Contains("Captured account template")).ShouldBeTrue();
+    }
+
+    [Test]
+    public void CreateCharacterTemplate_WhenTemplateNameBlank_Throws()
     {
         // Act & Assert
-        Should.Throw<ArgumentException>(() => _sut.CreateTemplate(Source, "  "));
+        Should.Throw<ArgumentException>(() => _sut.CreateCharacterTemplate(SourceCharacter, "  "));
+    }
+
+    [Test]
+    public void CreateAccountTemplate_WhenTemplateNameBlank_Throws()
+    {
+        // Act & Assert
+        Should.Throw<ArgumentException>(() => _sut.CreateAccountTemplate(SourceAccount, "  "));
     }
 }

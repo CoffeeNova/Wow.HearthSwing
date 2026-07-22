@@ -53,6 +53,22 @@ public partial class MainWindow : Window
         Close();
     }
 
+    private void OnDonorTreeSelectedItemChanged(
+        object sender,
+        RoutedPropertyChangedEventArgs<object> e
+    )
+    {
+        _vm.SelectedDonorCharacter = (e.NewValue as WtfTreeNodeViewModel)?.Character;
+    }
+
+    private void OnTargetTreeSelectedItemChanged(
+        object sender,
+        RoutedPropertyChangedEventArgs<object> e
+    )
+    {
+        _vm.SelectedTargetCharacter = (e.NewValue as WtfTreeNodeViewModel)?.Character;
+    }
+
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (

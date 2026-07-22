@@ -6,9 +6,10 @@ using Microsoft.Extensions.Logging;
 namespace HearthSwing.Services;
 
 /// <summary>
-/// Re-personalizes a template into a staging folder (expanding tokens with the target's names) and
-/// swaps it into the target's live character folder with rollback. Account-level settings, when
-/// requested, are overlaid so that the target account's other realm/character folders are preserved.
+/// Applies templates onto live targets. Character templates are expanded into a staging folder
+/// (re-personalizing tokens with the target's names) and swapped into the target character folder
+/// with rollback. Account templates overlay the target account's shared settings, preserving the
+/// account's other realm/character folders.
 /// </summary>
 public sealed class TemplateApplyService : ITemplateApplyService
 {
@@ -36,15 +37,40 @@ public sealed class TemplateApplyService : ITemplateApplyService
         _logger = logger;
     }
 
-    public void ApplyTemplate(
-        TemplateSummary template,
-        WowCharacter target,
-        TemplateApplyOptions options
-    )
+    public void ApplyAccountTemplate(TemplateSummary template, WowAccount target)
     {
         ArgumentNullException.ThrowIfNull(template);
         ArgumentNullException.ThrowIfNull(target);
-        ArgumentNullException.ThrowIfNull(options);
+
+        var templateAccountRoot = Path.Combine(template.RootPath, TemplateLayout.AccountFolderName);
+
+        if (!_fs.DirectoryExists(templateAccountRoot))
+            throw new InvalidOperationException(
+                $"Template '{template.Id}' has no account data to apply."
+            );
+
+        var sourceSavedVariables = Path.Combine(templateAccountRoot, SavedVariablesFolderName);
+        if (_fs.DirectoryExists(sourceSavedVariables))
+        {
+            _replacer.ReplaceDirectory(
+                sourceSavedVariables,
+                Path.Combine(target.FolderPath, SavedVariablesFolderName)
+            );
+        }
+
+        OverlayTopLevelFiles(templateAccountRoot, target.FolderPath);
+
+        _logger.LogInformation(
+            "Applied account template '{Name}' to account '{Account}'.",
+            template.Name,
+            target.AccountName
+        );
+    }
+
+    public void ApplyCharacterTemplate(TemplateSummary template, WowCharacter target)
+    {
+        ArgumentNullException.ThrowIfNull(template);
+        ArgumentNullException.ThrowIfNull(target);
 
         var templateCharRoot = Path.Combine(
             template.RootPath,
@@ -58,28 +84,6 @@ public sealed class TemplateApplyService : ITemplateApplyService
                 $"Template '{template.Id}' has no character data to apply."
             );
 
-        ApplyCharacter(templateCharRoot, target);
-
-        if (options.IncludeAccountSettings)
-        {
-            var templateAccountRoot = Path.Combine(
-                template.RootPath,
-                TemplateLayout.AccountFolderName
-            );
-            if (_fs.DirectoryExists(templateAccountRoot))
-                ApplyAccountSettings(templateAccountRoot, target);
-        }
-
-        _logger.LogInformation(
-            "Applied template '{Name}' to character '{Character}' on realm '{Realm}'.",
-            template.Name,
-            target.CharacterName,
-            target.RealmName
-        );
-    }
-
-    private void ApplyCharacter(string templateCharRoot, WowCharacter target)
-    {
         var staging = CreateStagingPath(target.FolderPath);
         try
         {
@@ -90,43 +94,22 @@ public sealed class TemplateApplyService : ITemplateApplyService
         {
             CleanupStaging(staging);
         }
+
+        _logger.LogInformation(
+            "Applied character template '{Name}' to character '{Character}' on realm '{Realm}'.",
+            template.Name,
+            target.CharacterName,
+            target.RealmName
+        );
     }
 
-    private void ApplyAccountSettings(string templateAccountRoot, WowCharacter target)
-    {
-        var targetAccountPath = GetAccountPath(target.FolderPath);
-        if (targetAccountPath is null)
-            return;
-
-        var staging = CreateStagingPath(targetAccountPath);
-        try
-        {
-            ExpandTreeToStaging(templateAccountRoot, staging, target);
-
-            var stagingSavedVariables = Path.Combine(staging, SavedVariablesFolderName);
-            if (_fs.DirectoryExists(stagingSavedVariables))
-            {
-                _replacer.ReplaceDirectory(
-                    stagingSavedVariables,
-                    Path.Combine(targetAccountPath, SavedVariablesFolderName)
-                );
-            }
-
-            OverlayTopLevelFiles(staging, targetAccountPath);
-        }
-        finally
-        {
-            CleanupStaging(staging);
-        }
-    }
-
-    private void OverlayTopLevelFiles(string stagingAccountPath, string targetAccountPath)
+    private void OverlayTopLevelFiles(string sourceAccountPath, string targetAccountPath)
     {
         if (!_fs.DirectoryExists(targetAccountPath))
             _fs.CreateDirectory(targetAccountPath);
 
         foreach (
-            var filePath in _fs.GetFiles(stagingAccountPath, "*", SearchOption.TopDirectoryOnly)
+            var filePath in _fs.GetFiles(sourceAccountPath, "*", SearchOption.TopDirectoryOnly)
         )
         {
             var destination = Path.Combine(targetAccountPath, Path.GetFileName(filePath));
@@ -198,11 +181,5 @@ public sealed class TemplateApplyService : ITemplateApplyService
         {
             _logger.LogWarning(ex, "Failed to clean up staging directory {Path}.", stagingPath);
         }
-    }
-
-    private static string? GetAccountPath(string characterFolderPath)
-    {
-        var realmFolder = Path.GetDirectoryName(characterFolderPath);
-        return realmFolder is null ? null : Path.GetDirectoryName(realmFolder);
     }
 }

@@ -46,18 +46,29 @@ public class TemplateApplyServiceTests
         );
     }
 
-    private static TemplateSummary Template =>
+    private static TemplateSummary CharacterTemplate =>
         new()
         {
             Id = "Warlock",
             Name = "Warlock - TBC",
+            Kind = TemplateKind.Character,
             RootPath = TemplateRoot,
             SourceAccountName = "MainAccount",
             SourceRealmName = "Firemaw",
             SourceCharacterName = "Thrall",
         };
 
-    private static WowCharacter Target =>
+    private static TemplateSummary AccountTemplate =>
+        new()
+        {
+            Id = "Warlock",
+            Name = "Warlock - Account",
+            Kind = TemplateKind.Account,
+            RootPath = TemplateRoot,
+            SourceAccountName = "MainAccount",
+        };
+
+    private static WowCharacter TargetCharacter =>
         new()
         {
             AccountName = "AltAccount",
@@ -66,8 +77,11 @@ public class TemplateApplyServiceTests
             FolderPath = TargetCharFolder,
         };
 
+    private static WowAccount TargetAccount =>
+        new() { AccountName = "AltAccount", FolderPath = TargetAccountFolder };
+
     [Test]
-    public void ApplyTemplate_ExpandsCharacterTokensIntoStagingAndReplacesTarget()
+    public void ApplyCharacterTemplate_ExpandsTokensIntoStagingAndReplacesTarget()
     {
         // Arrange
         _fs.DirectoryExists(TemplateCharRoot).Returns(true);
@@ -77,7 +91,7 @@ public class TemplateApplyServiceTests
             .Returns("name=\"{{CHAR}}\" realm=\"{{REALM}}\"");
 
         // Act
-        _sut.ApplyTemplate(Template, Target, new TemplateApplyOptions());
+        _sut.ApplyCharacterTemplate(CharacterTemplate, TargetCharacter);
 
         // Assert
         _fs.Received()
@@ -96,77 +110,53 @@ public class TemplateApplyServiceTests
     }
 
     [Test]
-    public void ApplyTemplate_WhenTemplateHasNoCharacterData_Throws()
+    public void ApplyCharacterTemplate_WhenTemplateHasNoCharacterData_Throws()
     {
         // Arrange
         _fs.DirectoryExists(TemplateCharRoot).Returns(false);
 
         // Act & Assert
         Should.Throw<InvalidOperationException>(() =>
-            _sut.ApplyTemplate(Template, Target, new TemplateApplyOptions())
+            _sut.ApplyCharacterTemplate(CharacterTemplate, TargetCharacter)
         );
     }
 
     [Test]
-    public void ApplyTemplate_WhenIncludeAccountSettingsFalse_DoesNotTouchAccountFolder()
+    public void ApplyAccountTemplate_OverlaysSavedVariablesAndTopLevelFiles()
     {
         // Arrange
-        _fs.DirectoryExists(TemplateCharRoot).Returns(true);
-
-        // Act
-        _sut.ApplyTemplate(
-            Template,
-            Target,
-            new TemplateApplyOptions { IncludeAccountSettings = false }
-        );
-
-        // Assert
-        _replacer
-            .DidNotReceive()
-            .ReplaceDirectory(Arg.Any<string>(), Arg.Is<string>(s => s.EndsWith("SavedVariables")));
-    }
-
-    [Test]
-    public void ApplyTemplate_WhenIncludeAccountSettings_OverlaysSavedVariablesAndTopLevelFiles()
-    {
-        // Arrange
-        _fs.DirectoryExists(TemplateCharRoot).Returns(true);
         _fs.DirectoryExists(TemplateAccountRoot).Returns(true);
-        _fs.DirectoryExists(Arg.Is<string>(s => s.Contains(".template-staging-"))).Returns(true);
+        _fs.DirectoryExists(TemplateAccountRoot + @"\SavedVariables").Returns(true);
         _fs.DirectoryExists(TargetAccountFolder).Returns(true);
-        _fs.GetFiles(TemplateAccountRoot, "*", SearchOption.AllDirectories)
-            .Returns([
-                TemplateAccountRoot + @"\config-cache.wtf",
-                TemplateAccountRoot + @"\SavedVariables\Acc.lua",
-            ]);
-        _fs.ReadAllText(Arg.Any<string>()).Returns("realm=\"{{REALM}}\"");
-        _fs.GetFiles(
-                Arg.Is<string>(s => s.Contains(".template-staging-")),
-                "*",
-                SearchOption.TopDirectoryOnly
-            )
-            .Returns([@"C:\staging\config-cache.wtf"]);
+        _fs.GetFiles(TemplateAccountRoot, "*", SearchOption.TopDirectoryOnly)
+            .Returns([TemplateAccountRoot + @"\config-cache.wtf"]);
 
         // Act
-        _sut.ApplyTemplate(
-            Template,
-            Target,
-            new TemplateApplyOptions { IncludeAccountSettings = true }
-        );
+        _sut.ApplyAccountTemplate(AccountTemplate, TargetAccount);
 
         // Assert
         _replacer
             .Received()
             .ReplaceDirectory(
-                Arg.Is<string>(s =>
-                    s.Contains(".template-staging-") && s.EndsWith("SavedVariables")
-                ),
+                TemplateAccountRoot + @"\SavedVariables",
                 @"C:\WTF\Account\AltAccount\SavedVariables"
             );
         _fs.Received()
             .CopyFile(
-                @"C:\staging\config-cache.wtf",
+                TemplateAccountRoot + @"\config-cache.wtf",
                 @"C:\WTF\Account\AltAccount\config-cache.wtf"
             );
+    }
+
+    [Test]
+    public void ApplyAccountTemplate_WhenTemplateHasNoAccountData_Throws()
+    {
+        // Arrange
+        _fs.DirectoryExists(TemplateAccountRoot).Returns(false);
+
+        // Act & Assert
+        Should.Throw<InvalidOperationException>(() =>
+            _sut.ApplyAccountTemplate(AccountTemplate, TargetAccount)
+        );
     }
 }

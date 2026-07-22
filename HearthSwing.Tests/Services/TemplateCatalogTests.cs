@@ -2,6 +2,7 @@ using System.IO;
 using AutoFixture;
 using AutoFixture.AutoNSubstitute;
 using HearthSwing.Models;
+using HearthSwing.Models.Templates;
 using HearthSwing.Services;
 using NSubstitute;
 using Shouldly;
@@ -74,11 +75,18 @@ public class TemplateCatalogTests
         _fs.DirectoryExists(@"C:\Profiles\.templates").Returns(false);
 
         // Act
-        var result = _sut.Create("Warlock - TBC", "MainAccount", "Firemaw", "Thrall");
+        var result = _sut.Create(
+            "Warlock - TBC",
+            TemplateKind.Character,
+            "MainAccount",
+            "Firemaw",
+            "Thrall"
+        );
 
         // Assert
         result.Id.ShouldBe("Warlock---TBC");
         result.Name.ShouldBe("Warlock - TBC");
+        result.Kind.ShouldBe(TemplateKind.Character);
         result.RootPath.ShouldBe(@"C:\Profiles\.templates\Warlock---TBC");
         result.SourceCharacterName.ShouldBe("Thrall");
         _fs.Received().CreateDirectory(@"C:\Profiles\.templates");
@@ -99,7 +107,13 @@ public class TemplateCatalogTests
         _fs.DirectoryExists(@"C:\Profiles\.templates\Warlock").Returns(true);
 
         // Act
-        var result = _sut.Create("Warlock", "MainAccount", "Firemaw", "Thrall");
+        var result = _sut.Create(
+            "Warlock",
+            TemplateKind.Character,
+            "MainAccount",
+            "Firemaw",
+            "Thrall"
+        );
 
         // Assert
         result.Id.ShouldBe("Warlock-2");
@@ -173,6 +187,7 @@ public class TemplateCatalogTests
             {
               "Id": "{{id}}",
               "Name": "{{name}}",
+              "Kind": "Character",
               "SourceAccountName": "MainAccount",
               "SourceRealmName": "Firemaw",
               "SourceCharacterName": "Thrall",

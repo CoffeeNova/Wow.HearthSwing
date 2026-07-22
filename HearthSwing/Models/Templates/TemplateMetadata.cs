@@ -1,7 +1,8 @@
 namespace HearthSwing.Models.Templates;
 
 /// <summary>
-/// Persisted description of a depersonalized character template (stored as template.json).
+/// Persisted description of a template (stored as template.json). A template is either an account
+/// template (shared account settings) or a character template (a single depersonalized character).
 /// </summary>
 public sealed class TemplateMetadata
 {
@@ -9,11 +10,15 @@ public sealed class TemplateMetadata
 
     public required string Name { get; init; }
 
+    public required TemplateKind Kind { get; init; }
+
     public required string SourceAccountName { get; init; }
 
-    public required string SourceRealmName { get; init; }
+    /// <summary>Realm the donor character belonged to. Null for account templates.</summary>
+    public string? SourceRealmName { get; init; }
 
-    public required string SourceCharacterName { get; init; }
+    /// <summary>Donor character name. Null for account templates.</summary>
+    public string? SourceCharacterName { get; init; }
 
     public DateTimeOffset CreatedAtUtc { get; init; }
 

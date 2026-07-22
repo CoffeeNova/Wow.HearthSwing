@@ -149,7 +149,13 @@ public partial class MainViewModel : ObservableObject
     private AppMode _activeMode = AppMode.Accounts;
 
     [ObservableProperty]
-    private bool _isTemplateDonorSelectionVisible;
+    private bool _isTemplateCreateVisible;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsCreatingAccountTemplate))]
+    [NotifyPropertyChangedFor(nameof(IsCreatingCharacterTemplate))]
+    [NotifyPropertyChangedFor(nameof(CanConfirmCreateTemplate))]
+    private TemplateKind _createTemplateKind = TemplateKind.Character;
 
     [ObservableProperty]
     private bool _isTemplateApplyVisible;
@@ -163,16 +169,30 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanConfirmCreateTemplate))]
+    private WowAccount? _selectedDonorAccount;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanConfirmCreateTemplate))]
     private string _newTemplateName = string.Empty;
+
+    [ObservableProperty]
+    private string _donorSearchText = string.Empty;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanConfirmApplyTemplate))]
     private WowCharacter? _selectedTargetCharacter;
 
     [ObservableProperty]
-    private bool _includeAccountSettings;
+    [NotifyPropertyChangedFor(nameof(CanConfirmApplyTemplate))]
+    private WowAccount? _selectedTargetAccount;
 
     [ObservableProperty]
+    private string _targetSearchText = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsApplyingAccountTemplate))]
+    [NotifyPropertyChangedFor(nameof(IsApplyingCharacterTemplate))]
+    [NotifyPropertyChangedFor(nameof(CanConfirmApplyTemplate))]
     private TemplateSummary? _templateToApply;
 
     [ObservableProperty]
@@ -197,17 +217,41 @@ public partial class MainViewModel : ObservableObject
 
     public ObservableCollection<ProfileVersion> TemplateVersions { get; } = [];
 
-    public ObservableCollection<WowCharacter> LiveCharacters { get; } = [];
+    public ObservableCollection<WtfTreeNodeViewModel> DonorCharacterTree { get; } = [];
+
+    public ObservableCollection<WowAccount> DonorAccounts { get; } = [];
+
+    public ObservableCollection<WtfTreeNodeViewModel> TargetCharacterTree { get; } = [];
+
+    public ObservableCollection<WowAccount> TargetAccounts { get; } = [];
 
     public bool IsAccountsMode => ActiveMode == AppMode.Accounts;
 
     public bool IsTemplatesMode => ActiveMode == AppMode.Templates;
 
+    public bool IsCreatingAccountTemplate => CreateTemplateKind == TemplateKind.Account;
+
+    public bool IsCreatingCharacterTemplate => CreateTemplateKind == TemplateKind.Character;
+
+    public bool IsApplyingAccountTemplate => TemplateToApply?.Kind == TemplateKind.Account;
+
+    public bool IsApplyingCharacterTemplate => TemplateToApply?.Kind == TemplateKind.Character;
+
     public bool CanConfirmCreateTemplate =>
-        SelectedDonorCharacter is not null && !string.IsNullOrWhiteSpace(NewTemplateName);
+        !string.IsNullOrWhiteSpace(NewTemplateName)
+        && (
+            IsCreatingAccountTemplate
+                ? SelectedDonorAccount is not null
+                : SelectedDonorCharacter is not null
+        );
 
     public bool CanConfirmApplyTemplate =>
-        TemplateToApply is not null && SelectedTargetCharacter is not null;
+        TemplateToApply is not null
+        && (
+            IsApplyingAccountTemplate
+                ? SelectedTargetAccount is not null
+                : SelectedTargetCharacter is not null
+        );
 
     public bool CanConfirmRenameTemplate => !string.IsNullOrWhiteSpace(RenameTemplateName);
 
@@ -901,21 +945,32 @@ public partial class MainViewModel : ObservableObject
     {
         if (GuardWowRunning("Close the game before creating a template."))
             return;
-        if (!RefreshLiveCharacters())
+        if (!EnsureLiveInstallation())
             return;
 
         NewTemplateName = string.Empty;
         SelectedDonorCharacter = null;
-        IsTemplateDonorSelectionVisible = true;
+        SelectedDonorAccount = null;
+        DonorSearchText = string.Empty;
+        CreateTemplateKind = TemplateKind.Character;
+        BuildCharacterTree(DonorCharacterTree);
+        BuildAccountList(DonorAccounts);
+        IsTemplateCreateVisible = true;
     }
 
     [RelayCommand]
-    private void CancelCreateTemplate() => IsTemplateDonorSelectionVisible = false;
+    private void SetCreateKindCharacter() => CreateTemplateKind = TemplateKind.Character;
+
+    [RelayCommand]
+    private void SetCreateKindAccount() => CreateTemplateKind = TemplateKind.Account;
+
+    [RelayCommand]
+    private void CancelCreateTemplate() => IsTemplateCreateVisible = false;
 
     [RelayCommand]
     private void ConfirmCreateTemplate()
     {
-        if (!CanConfirmCreateTemplate || SelectedDonorCharacter is null)
+        if (!CanConfirmCreateTemplate)
             return;
         if (GuardWowRunning("Close the game before creating a template."))
             return;
@@ -923,11 +978,17 @@ public partial class MainViewModel : ObservableObject
         IsBusy = true;
         try
         {
-            var template = _templateCaptureService.CreateTemplate(
-                SelectedDonorCharacter,
-                NewTemplateName
-            );
-            IsTemplateDonorSelectionVisible = false;
+            var template =
+                CreateTemplateKind == TemplateKind.Account
+                    ? _templateCaptureService.CreateAccountTemplate(
+                        SelectedDonorAccount!,
+                        NewTemplateName
+                    )
+                    : _templateCaptureService.CreateCharacterTemplate(
+                        SelectedDonorCharacter!,
+                        NewTemplateName
+                    );
+            IsTemplateCreateVisible = false;
             RefreshTemplates();
             StatusText = $"Template '{template.Name}' created.";
         }
@@ -950,12 +1011,17 @@ public partial class MainViewModel : ObservableObject
             return;
         if (GuardWowRunning("Close the game before applying a template."))
             return;
-        if (!RefreshLiveCharacters())
+        if (!EnsureLiveInstallation())
             return;
 
         TemplateToApply = template;
         SelectedTargetCharacter = null;
-        IncludeAccountSettings = false;
+        SelectedTargetAccount = null;
+        TargetSearchText = string.Empty;
+        if (template.Kind == TemplateKind.Account)
+            BuildAccountList(TargetAccounts);
+        else
+            BuildCharacterTree(TargetCharacterTree);
         TemplateApplyTitle = $"Apply '{template.Name}'";
         IsTemplateApplyVisible = true;
     }
@@ -970,15 +1036,17 @@ public partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void ConfirmApplyTemplate()
     {
-        if (!CanConfirmApplyTemplate || TemplateToApply is null || SelectedTargetCharacter is null)
+        if (!CanConfirmApplyTemplate || TemplateToApply is null)
             return;
         if (GuardWowRunning("Close the game before applying a template."))
             return;
 
+        var template = TemplateToApply;
+
         if (
-            IncludeAccountSettings
+            template.Kind == TemplateKind.Account
             && !_dialogService.Confirm(
-                "Applying account-level settings overwrites the SavedVariables shared by every character on the target account. Continue?",
+                "Applying an account template overwrites the SavedVariables shared by every character on the target account. Continue?",
                 "Overwrite Account Settings?"
             )
         )
@@ -987,22 +1055,26 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        var template = TemplateToApply;
-        var target = SelectedTargetCharacter;
-        var options = new TemplateApplyOptions
-        {
-            IncludeAccountSettings = IncludeAccountSettings,
-            CreateVersionBeforeApply = VersioningEnabled,
-        };
-
         IsBusy = true;
         try
         {
-            _templateApplyService.ApplyTemplate(template, target, options);
+            string appliedTo;
+            if (template.Kind == TemplateKind.Account)
+            {
+                var target = SelectedTargetAccount!;
+                _templateApplyService.ApplyAccountTemplate(template, target);
+                appliedTo = target.AccountName;
+            }
+            else
+            {
+                var target = SelectedTargetCharacter!;
+                _templateApplyService.ApplyCharacterTemplate(template, target);
+                appliedTo = target.CharacterName;
+            }
+
             IsTemplateApplyVisible = false;
             TemplateToApply = null;
-            StatusText =
-                $"Template '{template.Name}' applied to {target.CharacterName}. Type /reload in WoW.";
+            StatusText = $"Template '{template.Name}' applied to {appliedTo}. Type /reload in WoW.";
         }
         catch (Exception ex)
         {
@@ -1165,40 +1237,112 @@ public partial class MainViewModel : ObservableObject
         }
     }
 
-    private bool RefreshLiveCharacters()
+    private bool EnsureLiveInstallation()
     {
-        if (!EnsureInstallation() || _installation is null)
+        if (!EnsureInstallation() || _installation is null || _installation.Accounts.Count == 0)
         {
-            AppendLog("No live WoW characters were found in WTF.");
-            return false;
-        }
-
-        LiveCharacters.Clear();
-        foreach (
-            var character in _installation
-                .Accounts.SelectMany(account => account.Realms)
-                .SelectMany(realm => realm.Characters)
-                .OrderBy(character => character.AccountName, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(character => character.RealmName, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(character => character.CharacterName, StringComparer.OrdinalIgnoreCase)
-        )
-        {
-            LiveCharacters.Add(character);
-        }
-
-        if (LiveCharacters.Count == 0)
-        {
-            AppendLog("No live WoW characters were found in WTF.");
+            AppendLog("No live WoW accounts were found in WTF.");
             return false;
         }
 
         return true;
     }
 
-    partial void OnActiveModeChanged(AppMode value)
+    private void BuildCharacterTree(ObservableCollection<WtfTreeNodeViewModel> destination)
     {
-        OnPropertyChanged(nameof(IsAccountsMode));
-        OnPropertyChanged(nameof(IsTemplatesMode));
+        destination.Clear();
+        if (_installation is null)
+            return;
+
+        foreach (
+            var account in _installation.Accounts.OrderBy(
+                account => account.AccountName,
+                StringComparer.OrdinalIgnoreCase
+            )
+        )
+        {
+            var accountNode = new WtfTreeNodeViewModel(account.AccountName, character: null);
+
+            foreach (
+                var realm in account.Realms.OrderBy(
+                    realm => realm.RealmName,
+                    StringComparer.OrdinalIgnoreCase
+                )
+            )
+            {
+                var realmNode = new WtfTreeNodeViewModel(realm.RealmName, character: null);
+
+                foreach (
+                    var character in realm.Characters.OrderBy(
+                        character => character.CharacterName,
+                        StringComparer.OrdinalIgnoreCase
+                    )
+                )
+                {
+                    realmNode.Children.Add(
+                        new WtfTreeNodeViewModel(character.CharacterName, character)
+                    );
+                }
+
+                if (realmNode.Children.Count > 0)
+                    accountNode.Children.Add(realmNode);
+            }
+
+            if (accountNode.Children.Count > 0)
+                destination.Add(accountNode);
+        }
+    }
+
+    private void BuildAccountList(ObservableCollection<WowAccount> destination)
+    {
+        destination.Clear();
+        if (_installation is null)
+            return;
+
+        foreach (
+            var account in _installation.Accounts.OrderBy(
+                account => account.AccountName,
+                StringComparer.OrdinalIgnoreCase
+            )
+        )
+        {
+            destination.Add(account);
+        }
+    }
+
+    partial void OnDonorSearchTextChanged(string value)
+    {
+        foreach (var node in DonorCharacterTree)
+            node.ApplyFilter(value);
+
+        FilterAccountList(DonorAccounts, value);
+    }
+
+    partial void OnTargetSearchTextChanged(string value)
+    {
+        foreach (var node in TargetCharacterTree)
+            node.ApplyFilter(value);
+
+        FilterAccountList(TargetAccounts, value);
+    }
+
+    private void FilterAccountList(ObservableCollection<WowAccount> destination, string? search)
+    {
+        if (_installation is null)
+            return;
+
+        destination.Clear();
+        foreach (
+            var account in _installation
+                .Accounts.Where(account =>
+                    string.IsNullOrWhiteSpace(search)
+                    || account.AccountName.Contains(search, StringComparison.OrdinalIgnoreCase)
+                )
+                .OrderBy(account => account.AccountName, StringComparer.OrdinalIgnoreCase)
+        )
+        {
+            destination.Add(account);
+        }
     }
 
     private void AppendLog(string message)
