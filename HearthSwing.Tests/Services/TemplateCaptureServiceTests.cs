@@ -112,9 +112,54 @@ public class TemplateCaptureServiceTests
     }
 
     [Test]
-    public void CreateCharacterTemplate_CopiesNonTokenizableFilesByteForByte()
+    public void CreateCharacterTemplate_TokenizesCharacterNameInsideMacrosCache()
     {
         // Arrange
+        StubCharacterCatalog();
+        _fs.DirectoryExists(CharFolder).Returns(true);
+        _layout.CollectCharacterRelativePaths(CharFolder).Returns(["macros-cache.txt"]);
+        var macro =
+            "VER 3 0100000001000042 \"1_\" \"134400\"\n"
+            + "#showtooltip 13\n/cast [nomod] Drain Life\n/cast [@Thrall] kekw";
+        _fs.ReadAllText(CharFolder + @"\macros-cache.txt").Returns(macro);
+
+        // Act
+        _sut.CreateCharacterTemplate(SourceCharacter, "Warlock - TBC");
+
+        // Assert
+        _fs.Received()
+            .WriteAllText(
+                @"C:\Profiles\.templates\Warlock\Character\__REALM__\__CHAR__\macros-cache.txt",
+                Arg.Is<string>(text =>
+                    text.Contains("/cast [@{{CHAR}}] kekw") && !text.Contains("Thrall")
+                )
+            );
+    }
+
+    [Test]
+    public void CreateAccountTemplate_DoesNotTokenizeGeneralMacros()
+    {
+        // Arrange — an account template captures the account-wide macros-cache.txt verbatim,
+        // because an account has no single character name to substitute.
+        StubAccountCatalog();
+        _fs.DirectoryExists(AccountPath).Returns(true);
+        _layout.CollectAccountSettingsRelativePaths(AccountPath).Returns(["macros-cache.txt"]);
+
+        // Act
+        _sut.CreateAccountTemplate(SourceAccount, "Warlock - TBC");
+
+        // Assert
+        _fs.Received()
+            .CopyFile(
+                @"C:\WTF\Account\MainAccount\macros-cache.txt",
+                @"C:\Profiles\.templates\Warlock\Account\macros-cache.txt"
+            );
+        _fs.DidNotReceive().WriteAllText(Arg.Any<string>(), Arg.Any<string>());
+    }
+
+    [Test]
+    public void CreateCharacterTemplate_CopiesNonTokenizableFilesByteForByte()
+    { // Arrange
         StubCharacterCatalog();
         _fs.DirectoryExists(CharFolder).Returns(true);
         _layout.CollectCharacterRelativePaths(CharFolder).Returns(["cache.md5"]);
