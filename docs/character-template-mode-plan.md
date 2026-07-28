@@ -1,100 +1,100 @@
-# План: режим «Шаблоны персонажей» (Character Template Mode)
+# Plan: Character Template Mode
 
-Документ описывает добавление нового глобального режима работы HearthSwing —
-кросс-аккаунтных обезличенных шаблонов персонажей — с сохранением текущего
-аккаунтного режима без изменений.
+This document describes adding a new global mode to HearthSwing—cross-account
+anonymized character templates—while preserving the current account mode unchanged.
 
-## 1. Цель и суть фичи
+## 1. Goal and Feature Essence
 
-Пользователь играет одним классом (напр. варлок) на нескольких аккаунтах, реалмах
-и персонажах. Он хочет один **обезличенный шаблон** («Warlock - TBC»), который:
+A player uses the same class (e.g., warlock) across multiple accounts, realms,
+and characters. They want a single **anonymized template** ("Warlock - TBC") that:
 
-- создаётся из существующего персонажа-донора;
-- «отвязывается» от имени персонажа и названия реалма (деперсонализация);
-- переносится на любого другого персонажа (другой аккаунт / реалм / имя),
-  подставляя имя и реалм цели во всех местах, где они встречаются — в путях папок
-  и **внутри содержимого файлов** (макросы, SavedVariables, cache и т.п.).
+- is created from an existing source character;
+- becomes detached from the character name and realm name (anonymization);
+- can be applied to any other character (different account / realm / name),
+  substituting the target's name and realm everywhere they appear—in folder paths
+  and **inside file contents** (macros, SavedVariables, cache, etc.).
 
-Итог: единые настройки (кейбинды, макросы, edit-mode/раскладка, настройки аддонов)
-синхронизируются между персонажами и мирами.
+Result: unified settings (keybinds, macros, edit-mode/layout, addon settings)
+sync across characters and realms.
 
-## 2. Зафиксированные решения
+## 2. Locked Decisions
 
-| Тема | Решение |
+| Topic | Decision |
 |---|---|
-| UI | Верхний переключатель режимов «Аккаунты \| Шаблоны» в главном окне (старый экран уезжает под вкладку «Аккаунты» без изменений поведения) |
-| Деперсонализация | Токенизация при захвате: исходные имя/реалм заменяются на `{{CHAR}}` / `{{REALM}}` |
-| Что обезличиваем | Имя персонажа **и** название реалма |
-| Где заменяем содержимое | Известный allowlist текстовых файлов + все `*.lua` в SavedVariables на уровне персонажа **и** аккаунта |
-| Объём шаблона | Настройки аккаунта (файлы верхнего уровня `Account/<ACC>/` + `SavedVariables/`) **+** папка одного персонажа `<REALM>/<CHAR>/` |
-| Хранение | `<ProfilesPath>/.templates/<templateId>/` |
-| Версионирование | Да, `.tar.gz` архивы, аналогично аккаунтам |
+| UI | Top-level mode toggle "Accounts \| Templates" in main window (existing screen moves to "Accounts" tab without behavior changes) |
+| Anonymization | Tokenization during capture: original name/realm are replaced with `{{CHAR}}` / `{{REALM}}` |
+| What We Anonymize | Character name **and** realm name |
+| Where We Replace Content | Known allowlist of text files + all `*.lua` in SavedVariables at both character **and** account levels |
+| Template Scope | Account settings (top-level files from `Account/<ACC>/` + `SavedVariables/`) **+** one character folder `<REALM>/<CHAR>/` |
+| Storage | `<ProfilesPath>/.templates/<templateId>/` |
+| Versioning | Yes, `.tar.gz` archives, same as accounts |
 
-## 3. Ключевое отличие от текущего кода
+## 3. Key Difference from Current Code
 
-Сейчас весь код работает **на уровне аккаунта** и копирует файлы **побайтово**
-(`CopyFile`, `SequenceEqual`) — содержимое WoW-файлов никогда не читается и не
-переписывается. Новая фича вводит две принципиально новые способности:
+Currently, all code operates **at the account level** and copies files **byte-by-byte**
+(`CopyFile`, `SequenceEqual`)—WoW file content is never read or rewritten. The new
+feature introduces two fundamentally new capabilities:
 
-1. **Гранулярность на уровне персонажа.**
-2. **Подмена имени/реалма внутри содержимого текстовых файлов** (токенизация).
+1. **Character-level granularity.**
+2. **Name/realm substitution inside text file contents** (tokenization).
 
-Поэтому режим «Шаблоны» реализуется **отдельной веткой сервисов**, а старые
-сервисы (`AccountSnapshotSaveService`, `AccountSwitchService`, `SavedAccountCatalog`,
-`ProfileVersionService`, `SwitchingOrchestrator`) **не изменяются**.
+Therefore, the "Templates" mode is implemented as a **separate service branch**,
+and existing services (`AccountSnapshotSaveService`, `AccountSwitchService`,
+`SavedAccountCatalog`, `ProfileVersionService`, `SwitchingOrchestrator`) **remain
+unchanged**.
 
-## 4. Переиспользование существующего кода
+## 4. Code Reuse
 
-| Существующее | Как переиспользуем |
+| Existing | How We Reuse |
 |---|---|
-| `IFileSystem` | Всё файловое I/O нового кода идёт только через него (тестируемость) |
-| `IWtfInspector` | Уже отдаёт дерево `WowInstallation → WowAccount → WowRealm → WowCharacter` — источник для выбора персонажа-донора и цели |
-| `IAccountSnapshotLayout` | `CollectAccountSettingsRelativePaths` и `CollectCharacterRelativePaths` — готовая классификация «настройки аккаунта» vs «файлы персонажа». Переиспользуем как есть |
-| `IArchiveService` (tar.gz) | Версионирование шаблонов |
-| Паттерн rollback-копирования | Выносим в новый общий хелпер `IDirectoryReplacer` (старые сервисы не трогаем; они продолжают использовать свои приватные копии) |
-| `.`-префикс игнорируется при обходе аккаунтов (`SavedAccountCatalog`) | `.templates/` и `.template-versions/` не попадут в перечисление аккаунтов автоматически |
-| `IProcessMonitor` | Блокировка применения шаблона, пока запущен WoW (как при switch) |
-| `IDialogService` | Подтверждения и предупреждения (перезапись настроек аккаунта, `/reload`) |
-| `ProfileVersionService` | Служит эталоном; для шаблонов создаём параллельный `TemplateVersionService` (без изменения существующего) |
+| `IFileSystem` | All file I/O in new code uses only this abstraction (testability) |
+| `IWtfInspector` | Already provides the tree `WowInstallation → WowAccount → WowRealm → WowCharacter`—source for choosing source and target characters |
+| `IAccountSnapshotLayout` | `CollectAccountSettingsRelativePaths` and `CollectCharacterRelativePaths`—ready-made classification of "account settings" vs "character files". Reuse as-is |
+| `IArchiveService` (tar.gz) | Template versioning |
+| Rollback-copy pattern | Extract into new shared helper `IDirectoryReplacer` (existing services untouched; they continue using their own private copies) |
+| Dot-prefix ignored when walking accounts (`SavedAccountCatalog`) | `.templates/` and `.template-versions/` won't appear in account enumeration automatically |
+| `IProcessMonitor` | Block template application while WoW is running (same as switch) |
+| `IDialogService` | Confirmations and warnings (account settings overwrite, `/reload`) |
+| `ProfileVersionService` | Serves as reference; create parallel `TemplateVersionService` for templates (without modifying existing) |
 
-## 5. Хранение на диске
+## 5. Disk Storage
 
 ```
 <ProfilesPath>/
   .templates/
     <templateId>/
       template.json                         → TemplateMetadata
-      Account/                              → токенизированные настройки аккаунта
-        <файлы верхнего уровня>             (top-level Account/<ACC>/*)
-        SavedVariables/*.lua                (токенизированы)
+      Account/                              → tokenized account settings
+        <top-level files>                   (top-level Account/<ACC>/*)
+        SavedVariables/*.lua                (tokenized)
       Character/
-        __REALM__/__CHAR__/                 → токенизированная папка персонажа
+        __REALM__/__CHAR__/                 → tokenized character folder
           SavedVariables/*.lua
-          macros-cache.txt, ... (токенизированы)
+          macros-cache.txt, ... (tokenized)
   .template-versions/
-    <templateId>/<yyyyMMdd_HHmmss>.tar.gz   → версии (как у аккаунтов)
+    <templateId>/<yyyyMMdd_HHmmss>.tar.gz   → versions (same as accounts)
 ```
 
-- Токены в **именах папок**: `__CHAR__`, `__REALM__` (filesystem-safe).
-- Токены в **содержимом файлов**: `{{CHAR}}`, `{{REALM}}`.
-- `templateId` генерируется из имени шаблона по тем же правилам санитизации, что и
-  `savedAccountId` в `SavedAccountCatalog` (инвалидные символы → `_`, пробелы → `-`,
-  коллизии → суффикс `-2`, `-3`, ...).
+- Tokens in **folder names**: `__CHAR__`, `__REALM__` (filesystem-safe).
+- Tokens in **file contents**: `{{CHAR}}`, `{{REALM}}`.
+- `templateId` is generated from template name using the same sanitization rules as
+  `savedAccountId` in `SavedAccountCatalog` (invalid chars → `_`, spaces → `-`,
+  collisions → suffix `-2`, `-3`, ...).
 
-## 6. Новые модели (`Models/Templates/`)
+## 6. New Models (`Models/Templates/`)
 
-`TemplateMetadata` (сохраняется в `template.json`):
+`TemplateMetadata` (persisted in `template.json`):
 
 - `string Id` (required init)
-- `string Name` (required init) — «Warlock - TBC»
-- `string SourceAccountName` (required init) — провенанс
+- `string Name` (required init) — "Warlock - TBC"
+- `string SourceAccountName` (required init) — provenance
 - `string SourceRealmName` (required init)
 - `string SourceCharacterName` (required init)
 - `DateTimeOffset CreatedAtUtc`
 - `DateTimeOffset? LastUpdatedUtc`
-- `int SchemaVersion` — на будущее (миграции формата токенов)
+- `int SchemaVersion` — for future use (token format migrations)
 
-`TemplateSummary` (in-memory проекция, не сохраняется):
+`TemplateSummary` (in-memory projection, not persisted):
 
 - `string Id`, `string Name`, `string RootPath`
 - `string SourceAccountName`, `string SourceRealmName`, `string SourceCharacterName`
@@ -103,220 +103,220 @@
 
 `TemplateApplyOptions`:
 
-- `bool IncludeAccountSettings` — применять ли настройки уровня аккаунта (по умолчанию **false**, см. риск в §11)
-- `bool CreateVersionBeforeApply` — снять версию цели перед применением
+- `bool IncludeAccountSettings` — whether to apply account-level settings (default: **false**, see risk in §11)
+- `bool CreateVersionBeforeApply` — create a version of the target before applying
 
-Все модели — `public sealed class`, `required` + `init`, файлово-scoped namespace
+All models are `public sealed class`, with `required` + `init`, file-scoped namespace
 `HearthSwing.Models.Templates`.
 
-## 7. Новые сервисы (`Services/`)
+## 7. New Services (`Services/`)
 
-Все — `public sealed class`, реализуют интерфейс, DI-регистрация singleton в
-`App.xaml.cs ConfigureServices()`. Логирование через `event Action<string>? Log`
-там, где сервис должен сообщать о ходе работы.
+All are `public sealed class`, implement an interface, singleton DI registration in
+`App.xaml.cs ConfigureServices()`. Logging via `event Action<string>? Log` where the
+service should report progress.
 
 ### 7.1 `ITemplateTokenizer` / `TemplateTokenizer`
 
-Ядро деперсонализации. Без файлового I/O — чистые строковые операции.
+Core of anonymization. No file I/O—pure string operations.
 
 - `string Tokenize(string content, string charName, string realmName)`
 - `string Expand(string content, string charName, string realmName)`
-- Порядок замен (важно для минимизации ложных совпадений):
-  1. составной ключ `"<char> - <realm>"` → `"{{CHAR}} - {{REALM}}"`;
-  2. затем `realmName` → `{{REALM}}`;
-  3. затем `charName` → `{{CHAR}}`.
-- v1: ordinal (регистрозависимо), т.к. имена папок соответствуют ключам SV.
-- Набор пар замен вынести в структуру (список origin-строк), чтобы позже добавить
-  варианты реалма (с пробелами / без) без переписывания логики.
+- Replacement order (important to minimize false matches):
+  1. compound key `"<char> - <realm>"` → `"{{CHAR}} - {{REALM}}"`;
+  2. then `realmName` → `{{REALM}}`;
+  3. then `charName` → `{{CHAR}}`.
+- v1: ordinal (case-sensitive), since folder names match SV keys.
+- Extract replacement pairs into a structure (list of origin strings) to later add
+  realm variants (with/without spaces) without rewriting logic.
 
 ### 7.2 `ITemplateFileClassifier` / `TemplateFileClassifier`
 
-Определяет, токенизировать файл или копировать байтами.
+Determines whether to tokenize a file or copy byte-by-byte.
 
-- `bool ShouldTokenize(string relativePath)` — true для:
-  - любой `*.lua` (SavedVariables на обоих уровнях);
-  - allowlist cache-файлов: `macros-cache.txt`, `bindings-cache.wtf`,
+- `bool ShouldTokenize(string relativePath)` — true for:
+  - any `*.lua` (SavedVariables at both levels);
+  - allowlist of cache files: `macros-cache.txt`, `bindings-cache.wtf`,
     `config-cache.wtf`, `chat-cache.txt`, `chat-frontend-cache.txt`,
     `edit-mode-cache-account.txt`, `edit-mode-cache-character.txt`,
     `tts-cache-account.txt`, `tts-cache-character.txt`,
     `flagged-cache-account.txt`, `layout-local.txt`.
-- Явно **исключить** `cache.md5` из токенизации (это контрольная сумма; WoW
-  пересчитывает её сам — копируем как есть либо не включаем).
-- Константы паттернов держать рядом (как `CachePatterns` в `CacheProtector`).
+- Explicitly **exclude** `cache.md5` from tokenization (it's a checksum; WoW
+  recalculates it—copy as-is or don't include).
+- Keep pattern constants nearby (like `CachePatterns` in `CacheProtector`).
 
 ### 7.3 `IDirectoryReplacer` / `DirectoryReplacer`
 
-Общий хелпер rollback-копирования (новый; старые сервисы не трогаем).
+General rollback-copy helper (new; existing services untouched).
 
-- `void ReplaceDirectory(string sourcePath, string destinationPath)` — копия
-  назначения в `.rollback-<guid>`, снять read-only, удалить, скопировать источник;
-  при ошибке — откат; `finally` — удалить rollback-папку. Повторяет проверенный
-  паттерн из `AccountSnapshotSaveService`.
-- `void CopyDirectory(...)`, `void ClearReadOnlyAttributes(...)` — вспомогательные.
+- `void ReplaceDirectory(string sourcePath, string destinationPath)` — copy
+  destination to `.rollback-<guid>`, clear read-only, delete, copy source;
+  on error—rollback; `finally`—delete rollback folder. Repeats the proven pattern
+  from `AccountSnapshotSaveService`.
+- `void CopyDirectory(...)`, `void ClearReadOnlyAttributes(...)` — helpers.
 
 ### 7.4 `ITemplateCatalog` / `TemplateCatalog`
 
-Аналог `SavedAccountCatalog`, но для `.templates/`.
+Analogous to `SavedAccountCatalog`, but for `.templates/`.
 
-- `List<TemplateSummary> DiscoverTemplates()` — обход `.templates/*/`, чтение
-  `template.json`, сортировка по `Name` (OrdinalIgnoreCase).
+- `List<TemplateSummary> DiscoverTemplates()` — walk `.templates/*/`, read
+  `template.json`, sort by `Name` (OrdinalIgnoreCase).
 - `TemplateSummary? GetById(string templateId)`
-- `TemplateSummary Create(string name, ...)` — создать папку + `template.json`.
+- `TemplateSummary Create(string name, ...)` — create folder + `template.json`.
 - `void UpdateLastUpdated(string templateId, DateTimeOffset)`
 - `void Rename(string templateId, string newName)`
-- `void Delete(string templateId)` — удалить папку шаблона и его `.template-versions/<id>`.
+- `void Delete(string templateId)` — delete template folder and its `.template-versions/<id>`.
 - `StorageRoot = Path.Combine(AppSettings.ProfilesPath, ".templates")`.
 
 ### 7.5 `ITemplateCaptureService` / `TemplateCaptureService`
 
-Создание шаблона из живого персонажа.
+Creating a template from a live character.
 
 - `TemplateSummary CreateTemplate(WowCharacter source, string templateName)`:
-  1. `Create` записи в каталоге;
-  2. собрать настройки аккаунта источника через
+  1. `Create` entry in catalog;
+  2. collect source account settings via
      `IAccountSnapshotLayout.CollectAccountSettingsRelativePaths(Account/<srcAcc>)`
-     → записать в `<template>/Account/`, токенизируя текстовые файлы;
-  3. собрать файлы персонажа через `CollectCharacterRelativePaths(<srcChar>)`
-     → записать в `<template>/Character/__REALM__/__CHAR__/`, токенизируя;
+     → write to `<template>/Account/`, tokenizing text files;
+  3. collect character files via `CollectCharacterRelativePaths(<srcChar>)`
+     → write to `<template>/Character/__REALM__/__CHAR__/`, tokenizing;
   4. `UpdateLastUpdated`.
-- Токенизация: для каждого файла — если `ShouldTokenize` → прочитать как UTF-8,
-  `Tokenizer.Tokenize(text, source.CharacterName, source.RealmName)`, записать;
-  иначе `CopyFile` побайтово.
+- Tokenization: for each file—if `ShouldTokenize` → read as UTF-8,
+  `Tokenizer.Tokenize(text, source.CharacterName, source.RealmName)`, write;
+  else `CopyFile` byte-by-byte.
 - `event Action<string>? Log`.
 
 ### 7.6 `ITemplateApplyService` / `TemplateApplyService`
 
-Применение шаблона на целевого персонажа.
+Applying a template to a target character.
 
 - `void ApplyTemplate(TemplateSummary template, WowCharacter target, TemplateApplyOptions options)`:
-  1. подготовить временную «развёрнутую» копию: пройти `<template>/Character/...`,
-     для текстовых файлов `Tokenizer.Expand(text, target.CharacterName, target.RealmName)`,
-     имена папок-токенов заменить на реальные `<targetRealm>/<targetChar>`;
+  1. prepare temporary "expanded" copy: walk `<template>/Character/...`,
+     for text files `Tokenizer.Expand(text, target.CharacterName, target.RealmName)`,
+     replace token folder names with real `<targetRealm>/<targetChar>`;
   2. `DirectoryReplacer.ReplaceDirectory(expandedChar, WTF/Account/<tgtAcc>/<tgtRealm>/<tgtChar>)`;
-  3. если `options.IncludeAccountSettings` — аналогично развернуть `<template>/Account/`
-     и применить в `WTF/Account/<tgtAcc>/` (**с предупреждением**, см. §11);
-  4. rollback при ошибке на каждом шаге.
+  3. if `options.IncludeAccountSettings` — similarly expand `<template>/Account/`
+     and apply to `WTF/Account/<tgtAcc>/` (**with warning**, see §11);
+  4. rollback on error at each step.
 - `event Action<string>? Log`.
 
 ### 7.7 `ITemplateVersionService` / `TemplateVersionService`
 
-Параллель `ProfileVersionService`, root = `<ProfilesPath>/.template-versions`.
+Parallel to `ProfileVersionService`, root = `<ProfilesPath>/.template-versions`.
 
-- `Task CreateVersionAsync(string templateId)` — архив папки шаблона в
+- `Task CreateVersionAsync(string templateId)` — archive template folder to
   `<root>/<templateId>/<timestamp>.tar.gz`, `PruneVersions(...)`.
 - `List<ProfileVersion> GetVersions(string templateId)`
 - `Task RestoreVersionAsync(ProfileVersion)`
 - `void DeleteVersion(ProfileVersion)`
 - `void PruneVersions(string templateId, int maxVersions)`
-- Переиспользует модель `ProfileVersion` и `IArchiveService`.
-- Триггер: снятие версии шаблона перед его перезаписью (пересоздание/обновление).
+- Reuses `ProfileVersion` model and `IArchiveService`.
+- Trigger: version template before its rewrite (recreate/update).
 
 ## 8. ViewModel
 
-Старый `MainViewModel` расширяется **аддитивно** (существующие свойства/команды
-не меняются).
+The existing `MainViewModel` is extended **additively** (existing properties/commands
+unchanged).
 
-Новый режим (согласовано — вкладки в стиле существующих Visibility-биндингов):
+New mode (agreed—tabs in style of existing Visibility bindings):
 
-- `public enum AppMode { Accounts, Templates }` (в `HearthSwing.ViewModels` или Models).
+- `public enum AppMode { Accounts, Templates }` (in `HearthSwing.ViewModels` or Models).
 - `[ObservableProperty] AppMode _activeMode = AppMode.Accounts;`
-  с computed `bool IsAccountsMode`/`bool IsTemplatesMode` (или конвертер) для
-  Visibility двух корневых панелей.
+  with computed `bool IsAccountsMode`/`bool IsTemplatesMode` (or converter) for
+  Visibility of two root panels.
 - `[RelayCommand] void ShowAccountsMode()` / `ShowTemplatesMode()`.
 
-Состояние шаблонов:
+Template state:
 
 - `ObservableCollection<TemplateSummary> Templates`
 - `ObservableCollection<ProfileVersion> TemplateVersions`
-- выбор донора/цели: переиспользовать дерево из `_wtfInspector.Inspect(GamePath)`
-  (`LiveAccounts` уже строится; добавить проекции реалм/персонаж по аналогии с
+- source/target selection: reuse the tree from `_wtfInspector.Inspect(GamePath)`
+  (`LiveAccounts` already built; add realm/character projections similar to
   `RealmSaveSelectionViewModel` / `CharacterSaveSelectionViewModel`).
 
-Команды:
+Commands:
 
-- `CreateTemplateAsync()` — выбрать персонажа-донора + ввести имя → `CaptureService`.
-- `ApplyTemplateAsync(string templateId)` — выбрать целевого персонажа + опции →
-  предупреждение (если `IncludeAccountSettings`) → `ApplyService`; подсказать `/reload`.
+- `CreateTemplateAsync()` — select source character + enter name → `CaptureService`.
+- `ApplyTemplateAsync(string templateId)` — select target character + options →
+  warning (if `IncludeAccountSettings`) → `ApplyService`; suggest `/reload`.
 - `RenameTemplate(string templateId)`, `DeleteTemplate(string templateId)`.
 - `ToggleTemplateVersionHistory(string templateId)`,
   `RestoreTemplateVersionAsync(...)`, `DeleteTemplateVersion(...)`.
-- Гарды: `IsBusy`, `IsWowRunning` (применение блокируется при запущенном WoW).
+- Guards: `IsBusy`, `IsWowRunning` (application blocked while WoW is running).
 
-Подписка на `Log` новых сервисов — через `AppendLog` (method group), как у
-существующих сервисов.
+Subscribe to `Log` from new services—via `AppendLog` (method group), like existing
+services.
 
 ## 9. View (XAML)
 
-- В `MainWindow.xaml` добавить верхний переключатель режимов (segmented control /
-  две кнопки-таба в тёмной теме, стили `ProfileBtn`/`LinkBtn`).
-- Обернуть **существующий** контент в панель «Аккаунты» (Visibility ← `IsAccountsMode`)
-  — перенос разметки без изменения биндингов/поведения.
-- Новая панель «Шаблоны» (Visibility ← `IsTemplatesMode`): список шаблонов
-  (`ItemsControl` + `WrapPanel`, как профили), кнопки «Создать шаблон» / «Применить»
-  / «История версий» / «Удалить», диалоги выбора донора и цели.
-- Переиспользовать существующие ресурсы тёмной темы (`CardBg`, `TextPrimary`,
-  `BoolToVis`) и паттерн overlay-панелей для выбора персонажа.
+- In `MainWindow.xaml` add top-level mode toggle (segmented control /
+  two tab buttons in dark theme, `ProfileBtn`/`LinkBtn` styles).
+- Wrap **existing** content in an "Accounts" panel (Visibility ← `IsAccountsMode`)
+  — move markup without changing bindings/behavior.
+- New "Templates" panel (Visibility ← `IsTemplatesMode`): template list
+  (`ItemsControl` + `WrapPanel`, like profiles), buttons for "Create Template" /
+  "Apply" / "Version History" / "Delete", source and target selection dialogs.
+- Reuse existing dark theme resources (`CardBg`, `TextPrimary`, `BoolToVis`) and
+  overlay-panel pattern for character selection.
 
-## 10. Тесты (`HearthSwing.Tests/`)
+## 10. Tests (`HearthSwing.Tests/`)
 
-Структура зеркалит источник. NUnit + AutoFixture(AutoNSubstitute) + NSubstitute +
-Shouldly, AAA, `Freeze<T>()`, без реального I/O.
+Structure mirrors source. NUnit + AutoFixture(AutoNSubstitute) + NSubstitute +
+Shouldly, AAA, `Freeze<T>()`, no real I/O.
 
-- `Services/TemplateTokenizerTests` — round-trip tokenize/expand; составной ключ
-  `"Name - Realm"`; реалм с пробелом; отсутствие ложной замены подстроки (док. как
-  known limitation); идемпотентность.
-- `Services/TemplateFileClassifierTests` — `.lua` да; `cache.md5` нет; allowlist.
-- `Services/DirectoryReplacerTests` — успех и rollback при ошибке копирования.
-- `Services/TemplateCatalogTests` — discover/create/rename/delete, санитизация id,
-  коллизии, игнор `.`-папок.
-- `Services/TemplateCaptureServiceTests` — токенизация текстовых, побайтовое
-  копирование бинарных, структура `Account/` + `Character/__REALM__/__CHAR__/`.
-- `Services/TemplateApplyServiceTests` — развёртывание токенов, размещение по пути
-  цели, rollback, поведение `IncludeAccountSettings`.
-- `Services/TemplateVersionServiceTests` — create/list/restore/prune под
+- `Services/TemplateTokenizerTests` — round-trip tokenize/expand; compound key
+  `"Name - Realm"`; realm with spaces; no false substring replacement (doc as
+  known limitation); idempotency.
+- `Services/TemplateFileClassifierTests` — `.lua` yes; `cache.md5` no; allowlist.
+- `Services/DirectoryReplacerTests` — success and rollback on copy error.
+- `Services/TemplateCatalogTests` — discover/create/rename/delete, id sanitization,
+  collisions, ignore dot folders.
+- `Services/TemplateCaptureServiceTests` — text tokenization, binary byte-copy,
+  structure `Account/` + `Character/__REALM__/__CHAR__/`.
+- `Services/TemplateApplyServiceTests` — token expansion, placement at target path,
+  rollback, `IncludeAccountSettings` behavior.
+- `Services/TemplateVersionServiceTests` — create/list/restore/prune under
   `.template-versions`.
-- `ViewModels/MainViewModelTests` — новые команды, гарды (`IsWowRunning`),
-  переключение `AppMode`, отсутствие регрессий старых команд.
+- `ViewModels/MainViewModelTests` — new commands, guards (`IsWowRunning`),
+  `AppMode` toggle, no regression in old commands.
 
-## 11. Риски и краевые случаи
+## 11. Risks and Edge Cases
 
-1. **Перезапись настроек аккаунта затрагивает всех персонажей аккаунта.**
-   `Account/SavedVariables` — общие для всех персонажей на аккаунте. Применение
-   настроек аккаунта из шаблона перезапишет данные других персонажей.
-   Меры: `IncludeAccountSettings = false` по умолчанию; явное предупреждение через
-   `IDialogService`; авто-версия цели перед применением (`CreateVersionBeforeApply`).
-2. **Ложные совпадения при замене.** Имя персонажа/реалма может быть подстрокой
-   другого слова. Меры: замена только в allowlist-файлах и `*.lua`; порядок замен
-   (составной ключ → реалм → имя); документируем как known limitation v1.
-3. **Расхождение имени реалма (папка vs ключ SV, пробелы).** Механизм замен —
-   список пар origin-строк, расширяемый вариантами реалма без переписывания.
-4. **Кодировка.** WoW SV — UTF-8; читать/писать строго UTF-8 (без BOM).
-5. **`cache.md5` устаревает** после токенизации — исключить из токенизации; WoW
-   пересчитает; рекомендовать `/reload` после применения.
-6. **Применение при запущенном WoW** — блокировать (гард `IsWowRunning`), как switch.
-7. **Строгое требование:** старые сервисы и их поведение не меняются; новый код —
-   отдельная ветка, использующая только `IFileSystem`/`IArchiveService`/layout.
+1. **Account settings overwrite affects all account characters.**
+   `Account/SavedVariables` is shared across all characters on an account. Applying
+   account settings from a template will overwrite data for other characters.
+   Mitigations: `IncludeAccountSettings = false` by default; explicit warning via
+   `IDialogService`; auto-version target before apply (`CreateVersionBeforeApply`).
+2. **False matches during replacement.** Character/realm name may be a substring of
+   another word. Mitigations: replace only in allowlist files and `*.lua`; order of
+   replacements (compound key → realm → name); document as v1 known limitation.
+3. **Realm name mismatch (folder vs SV key, spaces).** Replacement mechanism—list of
+   origin-string pairs, expandable to realm variants without logic rewrite.
+4. **Encoding.** WoW SavedVariables—UTF-8; read/write strictly UTF-8 (no BOM).
+5. **`cache.md5` becomes stale** after tokenization—exclude from tokenization; WoW
+   recalculates; recommend `/reload` after apply.
+6. **Apply while WoW running** — block (guard `IsWowRunning`), like switch.
+7. **Hard requirement:** existing services and their behavior unchanged; new code is
+   a separate branch, using only `IFileSystem`/`IArchiveService`/layout.
 
-## 12. Порядок реализации (инкрементально)
+## 12. Implementation Order (Incrementally)
 
-1. Модели `Models/Templates/` (`TemplateMetadata`, `TemplateSummary`, `TemplateApplyOptions`).
-2. `TemplateTokenizer` + тесты (ядро, максимальный риск — валидируем первым).
-3. `TemplateFileClassifier` + тесты.
-4. `DirectoryReplacer` + тесты.
-5. `TemplateCatalog` + тесты.
-6. `TemplateCaptureService` + тесты.
-7. `TemplateApplyService` + тесты.
-8. `TemplateVersionService` + тесты.
-9. DI-регистрация в `App.xaml.cs`.
-10. `MainViewModel`: `AppMode`, коллекции, команды + тесты.
-11. `MainWindow.xaml`: переключатель режимов, панель «Шаблоны», диалоги выбора.
-12. Прогон `dotnet build HearthSwing.slnx -c Release` и
-    `dotnet test HearthSwing.slnx -c Release`; ручной smoke на реальном WTF.
+1. Models `Models/Templates/` (`TemplateMetadata`, `TemplateSummary`, `TemplateApplyOptions`).
+2. `TemplateTokenizer` + tests (core, highest risk—validate first).
+3. `TemplateFileClassifier` + tests.
+4. `DirectoryReplacer` + tests.
+5. `TemplateCatalog` + tests.
+6. `TemplateCaptureService` + tests.
+7. `TemplateApplyService` + tests.
+8. `TemplateVersionService` + tests.
+9. DI registration in `App.xaml.cs`.
+10. `MainViewModel`: `AppMode`, collections, commands + tests.
+11. `MainWindow.xaml`: mode toggle, "Templates" panel, selection dialogs.
+12. Run `dotnet build HearthSwing.slnx -c Release` and
+    `dotnet test HearthSwing.slnx -c Release`; manual smoke test on real WTF.
 
-## 13. Явно вне объёма v1
+## 13. Explicitly Out of Scope v1
 
-- Извлечение per-character записей из аккаунтных `*.lua` по ключу `"Name - Realm"`
-  (требует парсинга Lua) — отдельная будущая фаза.
-- Слияние (merge) настроек аккаунта вместо перезаписи.
-- Регистронезависимая/эвристическая замена имён.
-- Экспорт/импорт шаблонов между машинами (можно добавить поверх `IArchiveService`).
+- Extracting per-character entries from account `*.lua` by key `"Name - Realm"`
+  (requires Lua parsing)—separate future phase.
+- Merging (merge) account settings instead of overwrite.
+- Case-insensitive/heuristic name replacement.
+- Export/import templates between machines (can add on top of `IArchiveService`).

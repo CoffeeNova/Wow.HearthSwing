@@ -5,21 +5,21 @@ Use these instructions for all work in this repository. For full project context
 ## Project Overview
 
 - WPF desktop application targeting .NET 10 and `win-x64`.
-- Purpose: switch World of Warcraft Classic Anniversary `WTF` settings profiles between multiple users on one PC.
+- Purpose: capture, apply, and recover World of Warcraft Classic Anniversary `WTF` settings through portable templates and bounded change history.
 - Architecture is MVVM: `Models -> Services -> ViewModels -> Views`.
 
 ## Architecture
 
 - Keep responsibilities separated:
-  - `Models/` contains data-only types such as `AppSettings` and `ProfileInfo`.
+  - `Models/` contains data-only types such as `AppSettings`, `HistoryEntry`, template models, and WoW target models.
   - `Services/` contains business logic and infrastructure abstractions.
   - `ViewModels/` contains MVVM state and commands.
   - Root XAML files define views.
-- Register services in `MainWindow.ConfigureServices()` and use constructor injection throughout.
+- Register services in `App.ConfigureServices()` and use constructor injection throughout.
 - Services must depend on interfaces, not concrete implementations.
 - Keep filesystem access behind `IFileSystem` and process access behind `IProcessManager`.
 - Do not move business logic into XAML code-behind. `MainWindow.xaml.cs` is only for UI-specific behavior.
-- Preserve rollback behavior for multi-step filesystem operations such as profile switching.
+- Preserve rollback behavior for closed-game directory replacement and take required History snapshots before live `WTF` mutations.
 
 ## MVVM Conventions
 
@@ -32,23 +32,29 @@ Use these instructions for all work in this repository. For full project context
 
 ## Service Conventions
 
-- Services are `public sealed class` types implementing interfaces such as `ISettingsService`, `IProfileManager`, `ICacheProtector`, and `IProcessMonitor`.
+- Services are `public sealed class` types implementing interfaces such as `ITemplateCatalog`, `ITemplateCaptureService`, `ITemplateApplyService`, `ITemplateRestoreOrchestrator`, `IChangeHistoryService`, `ICacheProtector`, and `IProcessMonitor`.
 - Reuse existing abstractions instead of calling `File.*`, `Directory.*`, or process APIs directly in service code.
 - `CacheProtector` owns watcher resources and should continue to follow the existing `IDisposable` pattern.
 - `ProcessMonitor` is responsible for detecting and launching `WowClassic.exe`.
 - `SettingsService` stores `AppSettings.json` beside the executable and auto-detects `GamePath`.
+- `TemplateCaptureService` creates account templates and tokenized character templates with optional shared account-scoped settings.
+- `TemplateApplyService` chooses targeted writes for live WoW and uses rollback-aware replacement only when WoW is closed.
+- `TemplateRestoreOrchestrator` snapshots targets through `IChangeHistoryService` before apply. For live WoW it follows `Unlock -> apply -> Lock -> ForceRestore`, then prompts for `/reload`.
+- `ChangeHistoryService` owns bounded tar.gz snapshots, list/restore/delete operations, and a pre-rollback snapshot.
+- `SwitchingOrchestrator` is cache and launch only. Do not reintroduce account switching or saved-account behavior there.
 
 ## Domain Rules
 
-- Profile folders under `ProfilesPath` are snapshots of the WoW `WTF` folder.
-- The `.active` marker in `ProfilesPath` identifies the active profile whose folder is currently absent.
-- Profile switching flow is:
-  1. Park the current `WTF` folder into the current profile folder.
-  2. Move the target profile folder into `WTF`.
-  3. Update the `.active` marker.
-- Support same-volume move and cross-volume copy/delete behavior.
-- Clear read-only attributes before directory moves.
-- Cache protection depends on four layers working together: folder swap, read-only lock, watcher restore, and timestamp touch.
+- Templates are the only transfer mechanism. The top-level UI modes are `Templates` and `History`; do not reintroduce saved accounts, profile switching, profile filters, or a saved-account store.
+- Templates are stored under `<ProfilesPath>/.templates/<id>/`. Account templates capture account-scoped files. Character templates capture tokenized character files and can include `Shared/` account-scoped settings.
+- `TemplateApplyScope.Full` transfers all applicable files; `TemplateApplyScope.CacheOnly` transfers the cache-backed subset only.
+- Every operation that overwrites live `WTF` content must complete an `IChangeHistoryService` snapshot for every affected target first. This is mandatory and may not be bypassed by an option.
+- Character restore with account-scoped settings must snapshot both the character target and the account target before applying the template.
+- History is stored under `<ProfilesPath>/.history/<target-key>/` as tar.gz archives and `index.json`. `AppSettings.MaxHistoryEntriesPerTarget` defaults to 20 and limits retained entries per target.
+- History restore is offline only: resolve the live target, snapshot it again, then restore using `IDirectoryReplacer`. The UI must require WoW to be closed.
+- While WoW is running, never use `IDirectoryReplacer` or folder swap. Apply files in place, then re-establish cache protection and prompt the user to run `/reload`.
+- Clear read-only attributes before overwriting live files or deleting a staging folder. Preserve rollback behavior for closed-game directory replacement.
+- `CacheFilePatterns` is the single source of truth for protected cache files. Cache protection combines a read-only lock, in-memory backup, `FileSystemWatcher` restore, and timestamp touch.
 
 ## C# Style
 
@@ -93,5 +99,6 @@ Use these instructions for all work in this repository. For full project context
 
 1. Add or update the relevant model, service, ViewModel, view, and tests.
 2. Keep models logic-free.
-3. Wire new services through DI and subscribe logs in `MainViewModel` when needed.
-4. Follow existing XAML styling and binding conventions instead of introducing parallel patterns.
+3. Wire new services through `App.ConfigureServices()` and subscribe logs in `MainViewModel` when needed.
+4. Route live `WTF` mutations through `ITemplateRestoreOrchestrator`; complete all required History snapshots before applying the mutation.
+5. Follow existing XAML styling, segmented `Templates | History` mode bindings, overlays, confirmations, and toast conventions instead of introducing parallel patterns.
