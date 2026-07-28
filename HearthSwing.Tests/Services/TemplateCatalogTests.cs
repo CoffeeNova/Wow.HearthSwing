@@ -165,10 +165,11 @@ public class TemplateCatalogTests
     }
 
     [Test]
-    public void Delete_RemovesTemplateAndVersionFolders()
+    public void Delete_RemovesTemplateAndHistoryFolders()
     {
         // Arrange
         _fs.DirectoryExists(@"C:\Profiles\.templates\Warlock-TBC").Returns(true);
+        _fs.DirectoryExists(@"C:\Profiles\.history\template\Warlock-TBC").Returns(true);
         _fs.DirectoryExists(@"C:\Profiles\.template-versions\Warlock-TBC").Returns(true);
 
         // Act
@@ -176,6 +177,7 @@ public class TemplateCatalogTests
 
         // Assert
         _fs.Received().DeleteDirectory(@"C:\Profiles\.templates\Warlock-TBC", true);
+        _fs.Received().DeleteDirectory(@"C:\Profiles\.history\template\Warlock-TBC", true);
         _fs.Received().DeleteDirectory(@"C:\Profiles\.template-versions\Warlock-TBC", true);
         _logger.HasInformation(m => m.Contains("Deleted template")).ShouldBeTrue();
     }

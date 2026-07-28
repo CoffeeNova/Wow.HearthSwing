@@ -22,6 +22,7 @@ public class TemplateApplyServiceTests
     private const string TemplateCharRoot =
         @"C:\Profiles\.templates\Warlock\Character\__REALM__\__CHAR__";
     private const string TemplateAccountRoot = @"C:\Profiles\.templates\Warlock\Account";
+    private const string TemplateSharedRoot = @"C:\Profiles\.templates\Warlock\Shared";
     private const string TargetCharFolder = @"C:\WTF\Account\AltAccount\Gehennas\Jaina";
     private const string TargetAccountFolder = @"C:\WTF\Account\AltAccount";
 
@@ -110,6 +111,38 @@ public class TemplateApplyServiceTests
     }
 
     [Test]
+    public void ApplyCharacterTemplate_AlsoAppliesSharedAccountSettingsToTargetAccountRoot()
+    {
+        // Arrange
+        _fs.DirectoryExists(TemplateCharRoot).Returns(true);
+        _fs.DirectoryExists(TemplateSharedRoot).Returns(true);
+        _fs.DirectoryExists(TemplateSharedRoot + @"\SavedVariables").Returns(true);
+        _fs.DirectoryExists(TargetAccountFolder).Returns(true);
+        _fs.GetFiles(TemplateCharRoot, "*", SearchOption.AllDirectories)
+            .Returns([TemplateCharRoot + @"\SavedVariables\Addon.lua"]);
+        _fs.ReadAllText(TemplateCharRoot + @"\SavedVariables\Addon.lua")
+            .Returns("name=\"{{CHAR}}\" realm=\"{{REALM}}\"");
+        _fs.GetFiles(TemplateSharedRoot, "*", SearchOption.TopDirectoryOnly)
+            .Returns([TemplateSharedRoot + @"\config-cache.wtf"]);
+
+        // Act
+        _sut.ApplyCharacterTemplate(CharacterTemplate, TargetCharacter);
+
+        // Assert
+        _replacer
+            .Received()
+            .ReplaceDirectory(
+                TemplateSharedRoot + @"\SavedVariables",
+                TargetAccountFolder + @"\SavedVariables"
+            );
+        _fs.Received()
+            .CopyFile(
+                TemplateSharedRoot + @"\config-cache.wtf",
+                TargetAccountFolder + @"\config-cache.wtf"
+            );
+    }
+
+    [Test]
     public void ApplyCharacterTemplate_WhenTemplateHasNoCharacterData_Throws()
     {
         // Arrange
@@ -158,5 +191,126 @@ public class TemplateApplyServiceTests
         Should.Throw<InvalidOperationException>(() =>
             _sut.ApplyAccountTemplate(AccountTemplate, TargetAccount)
         );
+    }
+
+    [Test]
+    public void ApplyCharacterTemplate_CacheOnly_WritesOnlyCacheFilesWithoutReplacingDirectory()
+    {
+        // Arrange
+        var cacheFile = TemplateCharRoot + @"\Account\bindings-cache.wtf";
+        var ignoredFile = TemplateCharRoot + @"\SavedVariables\Addon.lua";
+
+        _fs.DirectoryExists(TemplateCharRoot).Returns(true);
+        _fs.GetFiles(TemplateCharRoot, "*", SearchOption.AllDirectories)
+            .Returns([cacheFile, ignoredFile]);
+        _fs.ReadAllText(cacheFile).Returns("name=\"{{CHAR}}\" realm=\"{{REALM}}\"");
+
+        // Act
+        _sut.ApplyCharacterTemplate(
+            CharacterTemplate,
+            TargetCharacter,
+            TemplateApplyScope.CacheOnly
+        );
+
+        // Assert
+        _replacer.DidNotReceive().ReplaceDirectory(Arg.Any<string>(), Arg.Any<string>());
+        _fs.Received()
+            .WriteAllText(
+                TargetCharFolder + @"\Account\bindings-cache.wtf",
+                "name=\"Jaina\" realm=\"Gehennas\""
+            );
+        _fs.DidNotReceive()
+            .WriteAllText(Arg.Is<string>(p => p.Contains("Addon.lua")), Arg.Any<string>());
+    }
+
+    [Test]
+    public void ApplyCharacterTemplate_CacheOnly_AlsoWritesSharedCacheFilesToAccountRoot()
+    {
+        // Arrange
+        var cacheFile = TemplateSharedRoot + @"\bindings-cache.wtf";
+        var ignoredFile = TemplateSharedRoot + @"\SavedVariables\Addon.lua";
+
+        _fs.DirectoryExists(TemplateCharRoot).Returns(true);
+        _fs.DirectoryExists(TemplateSharedRoot).Returns(true);
+        _fs.FileExists(cacheFile).Returns(true);
+        _fs.GetFiles(TemplateCharRoot, "*", SearchOption.AllDirectories)
+            .Returns([TemplateCharRoot + @"\SavedVariables\Addon.lua"]);
+        _fs.GetFiles(TemplateSharedRoot, "*", SearchOption.AllDirectories)
+            .Returns([cacheFile, ignoredFile]);
+        _fs.ReadAllBytes(cacheFile).Returns([4, 5, 6]);
+
+        // Act
+        _sut.ApplyCharacterTemplate(
+            CharacterTemplate,
+            TargetCharacter,
+            TemplateApplyScope.CacheOnly
+        );
+
+        // Assert
+        _fs.Received()
+            .WriteAllBytes(TargetAccountFolder + @"\bindings-cache.wtf", Arg.Any<byte[]>());
+        _fs.DidNotReceive()
+            .WriteAllBytes(Arg.Is<string>(p => p.Contains("Addon.lua")), Arg.Any<byte[]>());
+    }
+
+    [Test]
+    public void ApplyCharacterTemplate_WhenIncludeAccountScopedDisabled_DoesNotApplySharedFolder()
+    {
+        // Arrange
+        _fs.DirectoryExists(TemplateCharRoot).Returns(true);
+        _fs.DirectoryExists(TemplateSharedRoot).Returns(true);
+        _fs.DirectoryExists(TemplateSharedRoot + @"\SavedVariables").Returns(true);
+        _fs.GetFiles(TemplateCharRoot, "*", SearchOption.AllDirectories)
+            .Returns([TemplateCharRoot + @"\SavedVariables\Addon.lua"]);
+        _fs.ReadAllText(TemplateCharRoot + @"\SavedVariables\Addon.lua")
+            .Returns("name=\"{{CHAR}}\" realm=\"{{REALM}}\"");
+
+        // Act
+        _sut.ApplyCharacterTemplate(
+            CharacterTemplate,
+            TargetCharacter,
+            TemplateApplyScope.Full,
+            includeAccountScoped: false
+        );
+
+        // Assert
+        _replacer
+            .DidNotReceive()
+            .ReplaceDirectory(
+                TemplateSharedRoot + @"\SavedVariables",
+                TargetAccountFolder + @"\SavedVariables"
+            );
+        _fs.DidNotReceive()
+            .CopyFile(
+                Arg.Is<string>(path =>
+                    path.StartsWith(TemplateSharedRoot, StringComparison.Ordinal)
+                ),
+                Arg.Any<string>()
+            );
+    }
+
+    [Test]
+    public void ApplyAccountTemplate_CacheOnly_WritesOnlyCacheFilesWithoutReplacingSavedVariables()
+    {
+        // Arrange
+        var cacheFile = TemplateAccountRoot + @"\bindings-cache.wtf";
+        var ignoredFile = TemplateAccountRoot + @"\SavedVariables\Addon.lua";
+
+        _fs.DirectoryExists(TemplateAccountRoot).Returns(true);
+        _fs.DirectoryExists(TemplateAccountRoot + @"\SavedVariables").Returns(true);
+        _fs.DirectoryExists(TargetAccountFolder).Returns(true);
+        _fs.GetFiles(TemplateAccountRoot, "*", SearchOption.AllDirectories)
+            .Returns([cacheFile, ignoredFile]);
+        _fs.ReadAllBytes(cacheFile).Returns([4, 5, 6]);
+
+        // Act
+        _sut.ApplyAccountTemplate(AccountTemplate, TargetAccount, TemplateApplyScope.CacheOnly);
+
+        // Assert
+        _replacer.DidNotReceive().ReplaceDirectory(Arg.Any<string>(), Arg.Any<string>());
+        _fs.Received()
+            .WriteAllBytes(TargetAccountFolder + @"\bindings-cache.wtf", Arg.Any<byte[]>());
+        _fs.DidNotReceive()
+            .WriteAllBytes(Arg.Is<string>(p => p.Contains("Addon.lua")), Arg.Any<byte[]>());
     }
 }

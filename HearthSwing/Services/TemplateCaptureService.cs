@@ -7,13 +7,15 @@ namespace HearthSwing.Services;
 
 /// <summary>
 /// Builds templates from a live donor. Account templates copy the account's shared settings as-is.
-/// Character templates capture a single character folder, tokenizing the donor's character and realm
-/// names inside text files and replacing them with token folder names on disk.
+/// Character templates capture a single character folder plus the account-level shared settings,
+/// tokenizing the donor's character and realm names inside text files and replacing them with token
+/// folder names on disk.
 /// </summary>
 public sealed class TemplateCaptureService : ITemplateCaptureService
 {
+    private const string SavedVariablesFolderName = "SavedVariables";
+
     private readonly ITemplateCatalog _catalog;
-    private readonly IAccountSnapshotLayout _layout;
     private readonly ITemplateTokenizer _tokenizer;
     private readonly ITemplateFileClassifier _classifier;
     private readonly IFileSystem _fs;
@@ -21,7 +23,6 @@ public sealed class TemplateCaptureService : ITemplateCaptureService
 
     public TemplateCaptureService(
         ITemplateCatalog catalog,
-        IAccountSnapshotLayout layout,
         ITemplateTokenizer tokenizer,
         ITemplateFileClassifier classifier,
         IFileSystem fileSystem,
@@ -29,7 +30,6 @@ public sealed class TemplateCaptureService : ITemplateCaptureService
     )
     {
         _catalog = catalog;
-        _layout = layout;
         _tokenizer = tokenizer;
         _classifier = classifier;
         _fs = fileSystem;
@@ -51,7 +51,10 @@ public sealed class TemplateCaptureService : ITemplateCaptureService
             sourceCharacterName: null
         );
 
-        CaptureAccountSettings(source.FolderPath, template);
+        CaptureAccountSettings(
+            source.FolderPath,
+            Path.Combine(template.RootPath, TemplateLayout.AccountFolderName)
+        );
 
         _catalog.UpdateLastUpdated(template.Id, DateTimeOffset.UtcNow);
 
@@ -80,6 +83,7 @@ public sealed class TemplateCaptureService : ITemplateCaptureService
         );
 
         CaptureCharacter(source, template);
+        CaptureSharedAccountSettings(source, template);
 
         _catalog.UpdateLastUpdated(template.Id, DateTimeOffset.UtcNow);
 
@@ -99,7 +103,10 @@ public sealed class TemplateCaptureService : ITemplateCaptureService
         ArgumentNullException.ThrowIfNull(source);
 
         ClearContentFolder(Path.Combine(template.RootPath, TemplateLayout.AccountFolderName));
-        CaptureAccountSettings(source.FolderPath, template);
+        CaptureAccountSettings(
+            source.FolderPath,
+            Path.Combine(template.RootPath, TemplateLayout.AccountFolderName)
+        );
 
         _catalog.UpdateLastUpdated(template.Id, DateTimeOffset.UtcNow);
 
@@ -118,7 +125,9 @@ public sealed class TemplateCaptureService : ITemplateCaptureService
         ArgumentNullException.ThrowIfNull(source);
 
         ClearContentFolder(Path.Combine(template.RootPath, TemplateLayout.CharacterFolderName));
+        ClearContentFolder(Path.Combine(template.RootPath, TemplateLayout.SharedFolderName));
         CaptureCharacter(source, template);
+        CaptureSharedAccountSettings(source, template);
 
         _catalog.UpdateLastUpdated(template.Id, DateTimeOffset.UtcNow);
 
@@ -132,14 +141,21 @@ public sealed class TemplateCaptureService : ITemplateCaptureService
         return _catalog.GetById(template.Id) ?? template;
     }
 
-    private void CaptureAccountSettings(string accountPath, TemplateSummary template)
+    private void CaptureSharedAccountSettings(WowCharacter source, TemplateSummary template)
+    {
+        var accountPath = GetAccountRootPath(source.FolderPath);
+        CaptureAccountSettings(
+            accountPath,
+            Path.Combine(template.RootPath, TemplateLayout.SharedFolderName)
+        );
+    }
+
+    private void CaptureAccountSettings(string accountPath, string destinationRoot)
     {
         if (!_fs.DirectoryExists(accountPath))
             return;
 
-        var destinationRoot = Path.Combine(template.RootPath, TemplateLayout.AccountFolderName);
-
-        foreach (var relativePath in _layout.CollectAccountSettingsRelativePaths(accountPath))
+        foreach (var relativePath in CollectAccountSettingsRelativePaths(accountPath))
         {
             var sourceFile = Path.Combine(accountPath, relativePath);
             if (!_fs.FileExists(sourceFile))
@@ -163,7 +179,7 @@ public sealed class TemplateCaptureService : ITemplateCaptureService
             TemplateLayout.CharTokenFolderName
         );
 
-        foreach (var relativePath in _layout.CollectCharacterRelativePaths(source.FolderPath))
+        foreach (var relativePath in CollectCharacterRelativePaths(source.FolderPath))
         {
             CaptureCharacterFile(
                 Path.Combine(source.FolderPath, relativePath),
@@ -218,5 +234,54 @@ public sealed class TemplateCaptureService : ITemplateCaptureService
         }
 
         _fs.DeleteDirectory(folder, recursive: true);
+    }
+
+    private static string GetAccountRootPath(string characterFolderPath)
+    {
+        var realmFolder = Path.GetDirectoryName(characterFolderPath);
+        var accountRoot = realmFolder is null ? null : Path.GetDirectoryName(realmFolder);
+
+        return !string.IsNullOrEmpty(accountRoot)
+            ? accountRoot
+            : throw new InvalidOperationException(
+                $"Could not resolve account root from character folder '{characterFolderPath}'."
+            );
+    }
+
+    private List<string> CollectAccountSettingsRelativePaths(string accountPath)
+    {
+        if (!_fs.DirectoryExists(accountPath))
+            return [];
+
+        var relativePaths = new List<string>();
+
+        foreach (var filePath in _fs.GetFiles(accountPath, "*", SearchOption.TopDirectoryOnly))
+            relativePaths.Add(Path.GetRelativePath(accountPath, filePath));
+
+        var savedVariablesPath = Path.Combine(accountPath, SavedVariablesFolderName);
+        if (_fs.DirectoryExists(savedVariablesPath))
+        {
+            foreach (
+                var filePath in _fs.GetFiles(savedVariablesPath, "*", SearchOption.AllDirectories)
+            )
+            {
+                relativePaths.Add(Path.GetRelativePath(accountPath, filePath));
+            }
+        }
+
+        return relativePaths.Distinct(StringComparer.OrdinalIgnoreCase).Order().ToList();
+    }
+
+    private List<string> CollectCharacterRelativePaths(string characterPath)
+    {
+        if (!_fs.DirectoryExists(characterPath))
+            return [];
+
+        return _fs
+            .GetFiles(characterPath, "*", SearchOption.AllDirectories)
+            .Select(filePath => Path.GetRelativePath(characterPath, filePath))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order()
+            .ToList();
     }
 }

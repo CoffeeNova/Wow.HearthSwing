@@ -10,23 +10,6 @@ public sealed class TemplateFileClassifier : ITemplateFileClassifier
 {
     private const string LuaExtension = ".lua";
 
-    private static readonly HashSet<string> TokenizableCacheFiles = new(
-        StringComparer.OrdinalIgnoreCase
-    )
-    {
-        "macros-cache.txt",
-        "bindings-cache.wtf",
-        "config-cache.wtf",
-        "chat-cache.txt",
-        "chat-frontend-cache.txt",
-        "edit-mode-cache-account.txt",
-        "edit-mode-cache-character.txt",
-        "tts-cache-account.txt",
-        "tts-cache-character.txt",
-        "flagged-cache-account.txt",
-        "layout-local.txt",
-    };
-
     public bool ShouldTokenize(string relativePath)
     {
         if (string.IsNullOrWhiteSpace(relativePath))
@@ -37,6 +20,6 @@ public sealed class TemplateFileClassifier : ITemplateFileClassifier
         if (Path.GetExtension(fileName).Equals(LuaExtension, StringComparison.OrdinalIgnoreCase))
             return true;
 
-        return TokenizableCacheFiles.Contains(fileName);
+        return CacheFilePatterns.IsTokenizableCacheFileName(fileName);
     }
 }

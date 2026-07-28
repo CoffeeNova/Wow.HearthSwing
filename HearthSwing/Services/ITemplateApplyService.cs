@@ -9,7 +9,18 @@ namespace HearthSwing.Services;
 /// </summary>
 public interface ITemplateApplyService
 {
-    void ApplyAccountTemplate(TemplateSummary template, WowAccount target);
+    void ApplyAccountTemplate(
+        TemplateSummary template,
+        WowAccount target,
+        TemplateApplyScope scope = TemplateApplyScope.Full,
+        bool useDirectorySwap = true
+    );
 
-    void ApplyCharacterTemplate(TemplateSummary template, WowCharacter target);
+    void ApplyCharacterTemplate(
+        TemplateSummary template,
+        WowCharacter target,
+        TemplateApplyScope scope = TemplateApplyScope.Full,
+        bool includeAccountScoped = true,
+        bool useDirectorySwap = true
+    );
 }

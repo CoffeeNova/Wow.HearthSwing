@@ -38,17 +38,11 @@ public partial class App : Application
         services.AddSingleton<IFileSystem, FileSystem>();
         services.AddSingleton<IProcessManager, SystemProcessManager>();
         services.AddSingleton<ISettingsService, SettingsService>();
-        services.AddSingleton<IAccountSnapshotLayout, AccountSnapshotLayout>();
-        services.AddSingleton<IAccountSnapshotDiffService, AccountSnapshotDiffService>();
-        services.AddSingleton<IAccountSnapshotSaveService, AccountSnapshotSaveService>();
-        services.AddSingleton<IAccountSwitchService, AccountSwitchService>();
-        services.AddSingleton<ISavedAccountCatalog, SavedAccountCatalog>();
         services.AddSingleton<IWtfInspector, WtfInspector>();
         services.AddSingleton<ICacheProtector, CacheProtector>();
         services.AddSingleton<IProcessMonitor, ProcessMonitor>();
         services.AddSingleton<IUpdateService, UpdateService>();
         services.AddSingleton<IArchiveService, TarGzArchiveService>();
-        services.AddSingleton<IProfileVersionService, ProfileVersionService>();
         services.AddSingleton<IDialogService, WpfDialogService>();
         services.AddSingleton<IUiDispatcher, WpfUiDispatcher>();
         services.AddSingleton<ISwitchingOrchestrator, SwitchingOrchestrator>();
@@ -56,10 +50,12 @@ public partial class App : Application
         services.AddSingleton<ITemplateTokenizer, TemplateTokenizer>();
         services.AddSingleton<ITemplateFileClassifier, TemplateFileClassifier>();
         services.AddSingleton<IDirectoryReplacer, DirectoryReplacer>();
+        services.AddSingleton<IChangeHistoryService, ChangeHistoryService>();
         services.AddSingleton<ITemplateCatalog, TemplateCatalog>();
+        services.AddSingleton<ILegacyDataCleanupService, LegacyDataCleanupService>();
         services.AddSingleton<ITemplateCaptureService, TemplateCaptureService>();
         services.AddSingleton<ITemplateApplyService, TemplateApplyService>();
-        services.AddSingleton<ITemplateVersionService, TemplateVersionService>();
+        services.AddSingleton<ITemplateRestoreOrchestrator, TemplateRestoreOrchestrator>();
 
         services.AddSingleton<MainViewModel>();
         services.AddSingleton<MainWindow>();

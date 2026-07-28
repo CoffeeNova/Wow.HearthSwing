@@ -2,6 +2,7 @@
   x:Class="HearthSwing.MainWindow"
   xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
   xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+  xmlns:templates="clr-namespace:HearthSwing.Models.Templates"
   xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
   xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
   mc:Ignorable="d"
@@ -179,23 +180,52 @@
         </Setter.Value>
       </Setter>
     </Style>
+
+    <!-- Segmented filter button style -->
+    <Style x:Key="SegmentBtn" TargetType="Button">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{StaticResource TextSecondary}" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Padding" Value="4,6" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border
+              x:Name="bd"
+              Background="{TemplateBinding Background}"
+              CornerRadius="5"
+              Padding="{TemplateBinding Padding}"
+            >
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Opacity" Value="0.85" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
   </Window.Resources>
 
   <Grid Margin="16">
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto" />
       <!-- 0: Title -->
-      <RowDefinition Height="Auto" />
-      <!-- 1: Active account -->
-      <RowDefinition Height="Auto" />
-      <!-- 2: Saved account buttons -->
-      <RowDefinition Height="Auto" />
-      <!-- 3: Action buttons -->
-      <RowDefinition Height="Auto" />
-      <!-- 4: Save account -->
-      <RowDefinition Height="Auto" />
-      <!-- 5: Live account summary -->
       <RowDefinition Height="*" />
+      <!-- 1: Main surface (fills) -->
+      <RowDefinition Height="Auto" />
+      <!-- 2 -->
+      <RowDefinition Height="Auto" />
+      <!-- 3 -->
+      <RowDefinition Height="Auto" />
+      <!-- 4 -->
+      <RowDefinition Height="Auto" />
+      <!-- 5 -->
+      <RowDefinition Height="110" />
       <!-- 6: Log -->
       <RowDefinition Height="Auto" />
       <!-- 7: Status bar -->
@@ -203,7 +233,7 @@
       <!-- 8: Settings link -->
     </Grid.RowDefinitions>
 
-    <!-- Title + mode switcher -->
+    <!-- Title and mode switch -->
     <StackPanel Grid.Row="0" Margin="0,0,0,4">
       <TextBlock
         Text="HearthSwing"
@@ -212,196 +242,40 @@
         Foreground="{StaticResource TextPrimary}"
         HorizontalAlignment="Center"
       />
-      <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,6,0,0">
-        <Button
-          Content="Accounts"
-          Command="{Binding ShowAccountsModeCommand}"
-          Background="{StaticResource CardBg}"
-          Padding="14,6"
-          MinWidth="90"
-        >
-          <Button.Style>
-            <Style TargetType="Button" BasedOn="{StaticResource ActionBtn}">
-              <Setter Property="Opacity" Value="1" />
-              <Style.Triggers>
-                <DataTrigger Binding="{Binding IsAccountsMode}" Value="False">
-                  <Setter Property="Opacity" Value="0.5" />
-                </DataTrigger>
-              </Style.Triggers>
-            </Style>
-          </Button.Style>
-        </Button>
-        <Button
-          Content="Templates"
-          Command="{Binding ShowTemplatesModeCommand}"
-          Background="{StaticResource CardBg}"
-          Padding="14,6"
-          MinWidth="90"
-        >
-          <Button.Style>
-            <Style TargetType="Button" BasedOn="{StaticResource ActionBtn}">
-              <Setter Property="Opacity" Value="1" />
-              <Style.Triggers>
-                <DataTrigger Binding="{Binding IsTemplatesMode}" Value="False">
-                  <Setter Property="Opacity" Value="0.5" />
-                </DataTrigger>
-              </Style.Triggers>
-            </Style>
-          </Button.Style>
-        </Button>
-      </StackPanel>
+      <Border
+        Background="{StaticResource CardBg}"
+        CornerRadius="6"
+        Padding="3"
+        Margin="0,10,0,0"
+      >
+        <UniformGrid Rows="1" Columns="2">
+          <Button Content="Templates" Command="{Binding ShowTemplatesModeCommand}">
+            <Button.Style>
+              <Style TargetType="Button" BasedOn="{StaticResource SegmentBtn}">
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding IsTemplatesMode}" Value="True">
+                    <Setter Property="Background" Value="{StaticResource DonkyBrush}" />
+                    <Setter Property="Foreground" Value="White" />
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </Button.Style>
+          </Button>
+          <Button Content="History" Command="{Binding ShowHistoryModeCommand}">
+            <Button.Style>
+              <Style TargetType="Button" BasedOn="{StaticResource SegmentBtn}">
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding IsHistoryMode}" Value="True">
+                    <Setter Property="Background" Value="{StaticResource DonkyBrush}" />
+                    <Setter Property="Foreground" Value="White" />
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </Button.Style>
+          </Button>
+        </UniformGrid>
+      </Border>
     </StackPanel>
-
-    <!-- Current account indicator -->
-    <Border
-      Grid.Row="1"
-      Background="{StaticResource PanelBg}"
-      CornerRadius="8"
-      Padding="12,8"
-      Margin="0,4"
-      Visibility="{Binding IsAccountsMode, Converter={StaticResource BoolToVis}}"
-    >
-      <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-        <TextBlock
-          Text="Active Account: "
-          FontSize="14"
-          Foreground="{StaticResource TextSecondary}"
-          VerticalAlignment="Center"
-        />
-        <TextBlock
-          x:Name="ProfileIndicator"
-          Text="{Binding CurrentAccountName}"
-          FontSize="18"
-          FontWeight="Bold"
-          Foreground="{StaticResource DonkyBrush}"
-          VerticalAlignment="Center"
-        />
-      </StackPanel>
-    </Border>
-
-    <!-- Saved account switch buttons (dynamic) -->
-    <ItemsControl
-      x:Name="ProfileButtons"
-      Grid.Row="2"
-      ItemsSource="{Binding SavedAccounts}"
-      Margin="0,8"
-      Visibility="{Binding IsAccountsMode, Converter={StaticResource BoolToVis}}"
-    >
-      <ItemsControl.ItemsPanel>
-        <ItemsPanelTemplate>
-          <WrapPanel HorizontalAlignment="Center" />
-        </ItemsPanelTemplate>
-      </ItemsControl.ItemsPanel>
-      <ItemsControl.ItemTemplate>
-        <DataTemplate>
-          <Button
-            Content="{Binding DisplayName}"
-            Style="{StaticResource ProfileBtn}"
-            Background="{StaticResource CardBg}"
-            BorderBrush="{StaticResource DonkyBrush}"
-            Command="{Binding DataContext.SwitchSavedAccountCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-            CommandParameter="{Binding Id}"
-            MinWidth="120"
-          />
-        </DataTemplate>
-      </ItemsControl.ItemTemplate>
-    </ItemsControl>
-
-    <!-- Action buttons -->
-    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,4" Visibility="{Binding IsAccountsMode, Converter={StaticResource BoolToVis}}">
-      <Button
-        Content="&#x1F680; Launch WoW"
-        Style="{StaticResource ActionBtn}"
-        Background="{StaticResource LaunchGreen}"
-        Command="{Binding LaunchWowCommand}"
-        MinWidth="140"
-      />
-      <Button
-        Content="&#x1F504; Restore"
-        Style="{StaticResource ActionBtn}"
-        Background="#6c5ce7"
-        Command="{Binding ForceRestoreCommand}"
-        ToolTip="WoW running: restore cache files from backup, then /reload. WoW closed: restore WTF from the active saved account snapshot."
-        MinWidth="100"
-      />
-      <Button
-        Content="&#x1F513; Unlock"
-        Style="{StaticResource ActionBtn}"
-        Background="{StaticResource WarningOrange}"
-        Foreground="#2d3436"
-        Command="{Binding ForceUnlockCommand}"
-        Visibility="{Binding IsCacheLocked, Converter={StaticResource BoolToVis}}"
-        MinWidth="100"
-      />
-    </StackPanel>
-
-    <!-- Save account entry point -->
-    <Border
-      Grid.Row="4"
-      Background="{StaticResource PanelBg}"
-      CornerRadius="6"
-      Padding="8,6"
-      Margin="0,4,0,0"
-      Visibility="{Binding IsAccountsMode, Converter={StaticResource BoolToVis}}"
-    >
-      <Grid>
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="*" />
-          <ColumnDefinition Width="Auto" />
-        </Grid.ColumnDefinitions>
-        <StackPanel>
-          <TextBlock
-            Text="Save Account"
-            Foreground="{StaticResource TextPrimary}"
-            FontSize="13"
-            FontWeight="SemiBold"
-          />
-          <TextBlock
-            Text="Choose a live WoW account, review changed characters, then save only the slices you want."
-            Foreground="{StaticResource TextSecondary}"
-            FontSize="11"
-            TextWrapping="Wrap"
-            Margin="0,2,12,0"
-          />
-        </StackPanel>
-        <Button
-          Grid.Column="1"
-          Content="Review Save"
-          Style="{StaticResource ActionBtn}"
-          Background="{StaticResource DonkyBrush}"
-          Command="{Binding SaveAccountCommand}"
-          Padding="12,4"
-          Margin="4,0,0,0"
-          MinWidth="60"
-        />
-      </Grid>
-    </Border>
-
-    <!-- Live account summary (row 5) -->
-    <Border
-      Grid.Row="5"
-      Background="{StaticResource PanelBg}"
-      CornerRadius="6"
-      Padding="8,6"
-      Margin="0,4,0,0"
-      Visibility="{Binding IsAccountsMode, Converter={StaticResource BoolToVis}}"
-    >
-      <StackPanel>
-        <TextBlock
-          Text="Live WTF Accounts"
-          Foreground="{StaticResource TextPrimary}"
-          FontSize="13"
-          FontWeight="SemiBold"
-        />
-        <TextBlock
-          Text="{Binding DetectedLiveAccountsSummary}"
-          Foreground="{StaticResource TextSecondary}"
-          FontSize="11"
-          TextWrapping="Wrap"
-          Margin="0,4,0,0"
-        />
-      </StackPanel>
-    </Border>
 
     <!-- Templates panel (row 1-5, templates mode) -->
     <Border
@@ -422,13 +296,13 @@
 
         <StackPanel Grid.Row="0">
           <TextBlock
-            Text="Character Templates"
+            Text="Templates"
             Foreground="{StaticResource TextPrimary}"
             FontSize="14"
             FontWeight="SemiBold"
           />
           <TextBlock
-            Text="Create an account or character template, then apply it to any other account or character. Apply restores the files just like the Restore button; Launch WoW locks the cache against server sync."
+            Text="Templates are the only transfer mechanism. Create from a live character or account, apply to a target, and HearthSwing will create history snapshots before changing WTF."
             Foreground="{StaticResource TextSecondary}"
             FontSize="11"
             TextWrapping="Wrap"
@@ -446,6 +320,16 @@
             MinWidth="130"
           />
           <Button
+            Content="&#x1F504; Restore Cache"
+            Style="{StaticResource ActionBtn}"
+            Background="#6c5ce7"
+            Command="{Binding ForceRestoreCommand}"
+            Visibility="{Binding IsWowRunning, Converter={StaticResource BoolToVis}}"
+            ToolTip="Restore protected cache files from memory, then type /reload in WoW."
+            Margin="0,0,4,4"
+            MinWidth="130"
+          />
+          <Button
             Content="&#x1F513; Unlock"
             Style="{StaticResource ActionBtn}"
             Background="{StaticResource WarningOrange}"
@@ -456,7 +340,7 @@
             MinWidth="90"
           />
           <Button
-            Content="&#x2795; Create Template"
+            Content="&#x2795; New Template"
             Style="{StaticResource ActionBtn}"
             Background="{StaticResource DonkyBrush}"
             Command="{Binding OpenCreateTemplateCommand}"
@@ -475,7 +359,7 @@
                       <Setter.Value>
                         <ControlTemplate>
                           <TextBlock
-                            Text="No templates yet. Create one from a live character."
+                            Text="No templates yet. Create one from a live character or account."
                             Foreground="{StaticResource TextSecondary}"
                             FontSize="12"
                             Margin="0,4"
@@ -545,16 +429,16 @@
                         Background="{StaticResource DonkyBrush}"
                         Command="{Binding DataContext.OpenUpdateTemplateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                         CommandParameter="{Binding Id}"
-                        ToolTip="Re-capture this template from a live character/account (a version is saved first)."
+                        ToolTip="Re-capture this template from a live character or account. A history snapshot is saved first."
                         Padding="10,3"
                         Margin="0,0,4,0"
                         FontSize="11"
                       />
                       <Button
-                        Content="Versions"
+                        Content="History"
                         Style="{StaticResource ActionBtn}"
                         Background="#6c5ce7"
-                        Command="{Binding DataContext.ToggleTemplateVersionHistoryCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                        Command="{Binding DataContext.ToggleTemplateHistoryCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                         CommandParameter="{Binding Id}"
                         Padding="10,3"
                         Margin="0,0,4,0"
@@ -580,6 +464,167 @@
                         FontSize="11"
                       />
                     </WrapPanel>
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </ScrollViewer>
+      </Grid>
+    </Border>
+
+    <!-- History panel -->
+    <Border
+      Grid.Row="1"
+      Grid.RowSpan="5"
+      Background="{StaticResource PanelBg}"
+      CornerRadius="8"
+      Padding="12"
+      Margin="0,4,0,0"
+      Visibility="{Binding IsHistoryMode, Converter={StaticResource BoolToVis}}"
+    >
+      <Grid>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0">
+          <TextBlock
+            Text="History"
+            Foreground="{StaticResource TextPrimary}"
+            FontSize="14"
+            FontWeight="SemiBold"
+          />
+          <TextBlock
+            Text="History points are created automatically before templates overwrite live WTF targets. Restore works only while WoW is closed."
+            Foreground="{StaticResource TextSecondary}"
+            FontSize="11"
+            TextWrapping="Wrap"
+            Margin="0,2,0,10"
+          />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+          <ItemsControl ItemsSource="{Binding HistoryGroups}">
+            <ItemsControl.Style>
+              <Style TargetType="ItemsControl">
+                <Style.Triggers>
+                  <Trigger Property="HasItems" Value="False">
+                    <Setter Property="Template">
+                      <Setter.Value>
+                        <ControlTemplate>
+                          <TextBlock
+                            Text="History is empty. It fills automatically when templates are applied."
+                            Foreground="{StaticResource TextSecondary}"
+                            FontSize="12"
+                            Margin="0,4"
+                          />
+                        </ControlTemplate>
+                      </Setter.Value>
+                    </Setter>
+                  </Trigger>
+                </Style.Triggers>
+              </Style>
+            </ItemsControl.Style>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <Border
+                  Background="{StaticResource CardBg}"
+                  CornerRadius="6"
+                  Padding="10,8"
+                  Margin="0,0,0,8"
+                >
+                  <StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                      <Border
+                        Background="{StaticResource PanelBg}"
+                        CornerRadius="3"
+                        Padding="5,1"
+                        Margin="0,0,6,0"
+                        VerticalAlignment="Center"
+                      >
+                        <TextBlock
+                          Text="{Binding KindLabel}"
+                          Foreground="{StaticResource DonkyBrush}"
+                          FontSize="10"
+                          FontWeight="SemiBold"
+                        />
+                      </Border>
+                      <TextBlock
+                        Text="{Binding Title}"
+                        Foreground="{StaticResource TextPrimary}"
+                        FontSize="14"
+                        FontWeight="SemiBold"
+                        VerticalAlignment="Center"
+                      />
+                    </StackPanel>
+                    <TextBlock
+                      Text="{Binding Subtitle}"
+                      Foreground="{StaticResource TextSecondary}"
+                      FontSize="10"
+                      TextWrapping="Wrap"
+                      Margin="0,2,0,8"
+                    />
+
+                    <ItemsControl ItemsSource="{Binding Entries}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <Border
+                            Background="{StaticResource PanelBg}"
+                            CornerRadius="4"
+                            Padding="8,6"
+                            Margin="0,0,0,4"
+                          >
+                            <Grid>
+                              <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                              </Grid.ColumnDefinitions>
+                              <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                                <TextBlock
+                                  Text="{Binding DisplayName}"
+                                  Foreground="{StaticResource TextPrimary}"
+                                  FontSize="12"
+                                  FontWeight="SemiBold"
+                                />
+                                <TextBlock
+                                  Foreground="{StaticResource TextSecondary}"
+                                  FontSize="11"
+                                  TextWrapping="Wrap"
+                                >
+                                  <Run Text="{Binding Description}" />
+                                  <Run Text=" | " />
+                                  <Run Text="{Binding SizeBytes, StringFormat={}{0:N0} bytes}" />
+                                </TextBlock>
+                              </StackPanel>
+                              <Button
+                                Grid.Column="1"
+                                Content="Restore"
+                                Style="{StaticResource ActionBtn}"
+                                Background="{StaticResource LaunchGreen}"
+                                Command="{Binding DataContext.RestoreHistoryEntryCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                CommandParameter="{Binding}"
+                                Padding="8,3"
+                                Margin="4,0"
+                                FontSize="11"
+                              />
+                              <Button
+                                Grid.Column="2"
+                                Content="Delete"
+                                Style="{StaticResource ActionBtn}"
+                                Background="#e17055"
+                                Command="{Binding DataContext.DeleteHistoryEntryCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                CommandParameter="{Binding}"
+                                Padding="8,3"
+                                FontSize="11"
+                              />
+                            </Grid>
+                          </Border>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                   </StackPanel>
                 </Border>
               </DataTemplate>
@@ -650,6 +695,26 @@
       </Grid>
     </Border>
 
+    <!-- Toast -->
+    <Border
+      Grid.Row="7"
+      HorizontalAlignment="Right"
+      VerticalAlignment="Top"
+      Background="#dd0f3460"
+      BorderBrush="{StaticResource DonkyBrush}"
+      BorderThickness="1"
+      CornerRadius="6"
+      Padding="10,6"
+      Margin="0,-44,0,0"
+      Visibility="{Binding IsToastVisible, Converter={StaticResource BoolToVis}}"
+    >
+      <TextBlock
+        Text="{Binding ToastMessage}"
+        Foreground="{StaticResource TextPrimary}"
+        FontSize="11"
+      />
+    </Border>
+
     <!-- Footer links -->
     <StackPanel Grid.Row="8" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,4,0,0">
       <Button
@@ -657,13 +722,6 @@
         Style="{StaticResource LinkBtn}"
         Command="{Binding ToggleHowToUseCommand}"
         Margin="0,0,8,0"
-      />
-      <Button
-        Content="Versions"
-        Style="{StaticResource LinkBtn}"
-        Command="{Binding ToggleVersionHistoryCommand}"
-        Margin="0,0,8,0"
-        Visibility="{Binding IsAccountsMode, Converter={StaticResource BoolToVis}}"
       />
       <Button
         Content="About"
@@ -714,7 +772,7 @@
           />
 
           <TextBlock
-            Text="Saved Accounts Path:"
+            Text="Profiles Path:"
             Foreground="{StaticResource TextSecondary}"
             FontSize="12"
             Margin="0,0,0,2"
@@ -741,48 +799,62 @@
             Margin="0,0,0,8"
           />
 
-          <CheckBox
-            Content="Enable account versioning"
-            IsChecked="{Binding VersioningEnabled}"
-            Foreground="{StaticResource TextSecondary}"
-            FontSize="12"
-            Margin="0,0,0,4"
-          />
           <StackPanel
             Orientation="Horizontal"
-            Margin="16,0,0,8"
-            Visibility="{Binding VersioningEnabled, Converter={StaticResource BoolToVis}}"
+            Margin="0,0,0,8"
           >
             <TextBlock
-              Text="Max versions:"
+              Text="Max history entries per target:"
               Foreground="{StaticResource TextSecondary}"
               FontSize="12"
               VerticalAlignment="Center"
               Margin="0,0,6,0"
             />
             <TextBox
-              Text="{Binding MaxVersionsPerProfile, UpdateSourceTrigger=PropertyChanged}"
+              Text="{Binding MaxHistoryEntriesPerTarget, UpdateSourceTrigger=PropertyChanged}"
               FontSize="12"
               Padding="6,4"
               Width="50"
             />
           </StackPanel>
 
-          <CheckBox
-            Content="Save prompt on WoW exit"
-            IsChecked="{Binding SaveOnExitEnabled}"
-            Foreground="{StaticResource TextSecondary}"
-            FontSize="12"
-            Margin="0,0,0,4"
-          />
-          <CheckBox
-            Content="Auto-save (skip prompt)"
-            IsChecked="{Binding AutoSaveOnExit}"
-            Foreground="{StaticResource TextSecondary}"
-            FontSize="12"
-            Margin="16,0,0,12"
-            Visibility="{Binding SaveOnExitEnabled, Converter={StaticResource BoolToVis}}"
-          />
+          <Border
+            Background="{StaticResource PanelBg}"
+            CornerRadius="6"
+            Padding="10,8"
+            Margin="0,0,0,12"
+          >
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+              <StackPanel>
+                <TextBlock
+                  Text="Legacy cleanup"
+                  Foreground="{StaticResource TextPrimary}"
+                  FontSize="13"
+                  FontWeight="SemiBold"
+                />
+                <TextBlock
+                  Text="Remove obsolete pre-history folders and markers from Profiles Path."
+                  Foreground="{StaticResource TextSecondary}"
+                  FontSize="11"
+                  TextWrapping="Wrap"
+                  Margin="0,2,12,0"
+                />
+              </StackPanel>
+              <Button
+                Grid.Column="1"
+                Content="Clean Up"
+                Style="{StaticResource ActionBtn}"
+                Background="#e17055"
+                Command="{Binding CleanupLegacyDataCommand}"
+                MinWidth="90"
+                Margin="8,0,0,0"
+              />
+            </Grid>
+          </Border>
 
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
             <Button
@@ -834,7 +906,7 @@
             <Run Text="{Binding AppVersion, Mode=OneTime}" FontWeight="SemiBold" />
           </TextBlock>
           <TextBlock
-            Text="WoW Classic Anniversary account switcher"
+            Text="WoW Classic Anniversary templates and WTF history manager"
             Foreground="{StaticResource TextSecondary}"
             FontSize="12"
             TextWrapping="Wrap"
@@ -904,62 +976,12 @@
               TextWrapping="Wrap"
               LineHeight="20"
               xml:space="preserve"
-              Visibility="{Binding IsAccountsMode, Converter={StaticResource BoolToVis}}"
-            >
-              <Run
-                FontWeight="SemiBold"
-                Text="1. Setup"
-              />
-Place HearthSwing.exe anywhere you like. Open Settings and set the Game Path (folder with WowClassic.exe) and Saved Accounts Path (where saved account snapshots are stored).
-
-<Run
-                FontWeight="SemiBold"
-                Text="2. Save an account"
-              />
-Click "Save Account" or "Review Save". HearthSwing scans the live WTF accounts. If the account has never been saved, it captures the full account snapshot. If it already exists, it shows account settings plus realm and character checkboxes, preselecting the slices that actually changed.
-
-<Run
-                FontWeight="SemiBold"
-                Text="3. Switch accounts"
-              />
-Click a saved account button to apply that account snapshot into WTF. After switching, launch WoW and click Restore, then type /reload in the game to apply the restored cache files.
-
-<Run
-                FontWeight="SemiBold"
-                Text="4. Launch WoW"
-              />
-Click "Launch WoW" to start the game with cache protection enabled. Cache files are locked read-only and restored from backup to prevent server sync from overwriting your local settings.
-
-<Run
-                FontWeight="SemiBold"
-                Text="5. Cache protection"
-              />
-After launch, cache files stay locked for the configured delay (default 120s). Use "Unlock" to release early or "Restore" to force-restore from the active saved account while WoW is running (type /reload after).
-
-<Run
-                FontWeight="SemiBold"
-                Text="6. Save on exit"
-              />
-If Save on Exit is enabled, HearthSwing compares the live account against the active saved snapshot when WoW closes. Auto-save writes changed account settings and characters immediately; otherwise the save review overlay opens so you can confirm the changed slices.
-
-<Run
-                FontWeight="SemiBold"
-                Text="Note:"
-              />
-HearthSwing transfers macros, keybindings, edit mode layout, and addon settings. Action bars are NOT transferred. Use the ActionBarSaver addon (for TBC Anniversary: ActionBarSaver Reloaded) to save/restore action bars separately.</TextBlock
-            >
-            <TextBlock
-              Foreground="{StaticResource TextSecondary}"
-              FontSize="12"
-              TextWrapping="Wrap"
-              LineHeight="20"
-              xml:space="preserve"
               Visibility="{Binding IsTemplatesMode, Converter={StaticResource BoolToVis}}"
             ><Run
                 FontWeight="SemiBold"
-                Text="Templates: what they are"
+                Text="Templates"
               />
-Templates let you reuse one character's setup (macros, keybindings, edit mode, addon settings) across many characters, accounts and realms. There are two separate template types: Character templates and Account templates.
+Templates are the only transfer workflow. They come in two types: Character templates and Account templates.
 
 <Run
                 FontWeight="SemiBold"
@@ -977,25 +999,56 @@ Choose "Account" instead to capture only the shared account-level settings (acco
                 FontWeight="SemiBold"
                 Text="3. Apply a template"
               />
-Click "Apply" on a template card. Character templates ask for a target character (tree + search); account templates ask for a target account. Applying restores the template files into WTF using the same file-swap mechanism as Restore. Type /reload in WoW afterwards.
+Click "Apply" on a template card. Character templates ask for a target character (tree + search); account templates ask for a target account. Before HearthSwing overwrites live WTF content, it creates history snapshots automatically.
 
 <Run
                 FontWeight="SemiBold"
                 Text="4. Launch WoW and cache protection"
               />
-The Launch WoW button on this tab works exactly like on the Accounts tab: it locks the cache files read-only to stop the server from overwriting your local settings. Use Unlock to release early.
+The Launch WoW button locks cache files as read-only to stop server sync from overwriting your local settings. Use Unlock to release early.
 
 <Run
                 FontWeight="SemiBold"
-                Text="5. Versions"
+                Text="5. History"
               />
-Each template keeps its own version history (the "Versions" button on each card). Rename or Delete a template from its card.
+Each template keeps its own revision history from the "History" button on its card. Rename or Delete a template from its card.
 
 <Run
                 FontWeight="SemiBold"
                 Text="Note:"
               />
 Action bars are NOT transferred by templates. Use the ActionBarSaver addon to save/restore action bars separately.</TextBlock
+            >
+            <TextBlock
+              Foreground="{StaticResource TextSecondary}"
+              FontSize="12"
+              TextWrapping="Wrap"
+              LineHeight="20"
+              xml:space="preserve"
+              Visibility="{Binding IsHistoryMode, Converter={StaticResource BoolToVis}}"
+            ><Run
+                FontWeight="SemiBold"
+                Text="History"
+              />
+History is filled automatically when a template is applied and HearthSwing is about to overwrite live WTF content.
+
+<Run
+                FontWeight="SemiBold"
+                Text="1. What is stored"
+              />
+Each history group represents one live target: either a character subtree or shared account settings.
+
+<Run
+                FontWeight="SemiBold"
+                Text="2. Restore"
+              />
+Close WoW first, then press "Restore" on the history entry you want. HearthSwing snapshots the current state again before restoring, so the rollback itself is also recoverable.
+
+<Run
+                FontWeight="SemiBold"
+                Text="3. Cleanup"
+              />
+Delete old history entries manually when you no longer need them, or rely on the configured per-target history limit.</TextBlock
             >
             </StackPanel>
           </ScrollViewer>
@@ -1008,161 +1061,6 @@ Action bars are NOT transferred by templates. Use the ActionBarSaver addon to sa
             HorizontalAlignment="Right"
             MinWidth="80"
           />
-        </Grid>
-      </Border>
-    </Border>
-
-    <!-- Save account overlay -->
-    <Border
-      Grid.Row="0"
-      Grid.RowSpan="9"
-      Background="#ee1a1a2e"
-      CornerRadius="8"
-      Visibility="{Binding IsSaveSelectionVisible, Converter={StaticResource BoolToVis}}"
-      Padding="20"
-      VerticalAlignment="Center"
-      HorizontalAlignment="Center"
-      MinWidth="380"
-    >
-      <Border Background="{StaticResource CardBg}" CornerRadius="8" Padding="16">
-        <Grid>
-          <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-          </Grid.RowDefinitions>
-
-          <TextBlock
-            Grid.Row="0"
-            Text="{Binding SaveSelectionTitle}"
-            FontSize="16"
-            FontWeight="Bold"
-            Foreground="{StaticResource TextPrimary}"
-            Margin="0,0,0,12"
-          />
-
-          <StackPanel Grid.Row="1" Margin="0,0,0,12">
-            <TextBlock
-              Text="Live Account:"
-              Foreground="{StaticResource TextSecondary}"
-              FontSize="12"
-              Margin="0,0,0,4"
-            />
-            <ComboBox
-              ItemsSource="{Binding LiveAccounts}"
-              SelectedItem="{Binding SelectedLiveAccountName}"
-              FontSize="12"
-              Padding="4,2"
-            />
-            <TextBlock
-              Text="{Binding SaveSelectionMessage}"
-              Foreground="{StaticResource TextSecondary}"
-              FontSize="12"
-              TextWrapping="Wrap"
-              Margin="0,8,0,0"
-            />
-            <ProgressBar
-              IsIndeterminate="True"
-              Height="4"
-              Margin="0,8,0,0"
-              Visibility="{Binding IsLoadingSaveSelection, Converter={StaticResource BoolToVis}}"
-            />
-          </StackPanel>
-
-          <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" MaxHeight="320">
-            <StackPanel>
-              <TextBlock
-                Text="New account: the whole account snapshot will be saved."
-                Foreground="{StaticResource TextSecondary}"
-                FontSize="12"
-                TextWrapping="Wrap"
-                Visibility="{Binding IsNewSaveAccount, Converter={StaticResource BoolToVis}}"
-                Margin="0,0,0,8"
-              />
-
-              <StackPanel Visibility="{Binding HasPendingCharacterNodes, Converter={StaticResource BoolToVis}}">
-                <CheckBox
-                  Content="Account settings (SavedVariables and account root files)"
-                  IsChecked="{Binding SaveAccountSettingsSelected}"
-                  Foreground="{StaticResource TextPrimary}"
-                  FontSize="12"
-                  Margin="0,0,0,8"
-                />
-
-                <ItemsControl ItemsSource="{Binding SaveRealms}">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                      <Expander IsExpanded="True" Margin="0,0,0,8">
-                        <Expander.Header>
-                          <StackPanel Orientation="Horizontal">
-                            <TextBlock
-                              Text="{Binding RealmName}"
-                              Foreground="{StaticResource TextPrimary}"
-                              FontWeight="SemiBold"
-                              FontSize="12"
-                            />
-                            <TextBlock
-                              Text="{Binding StatusText, StringFormat= ({0})}"
-                              Foreground="{StaticResource TextSecondary}"
-                              FontSize="11"
-                              Margin="6,0,0,0"
-                            />
-                          </StackPanel>
-                        </Expander.Header>
-
-                        <ItemsControl ItemsSource="{Binding Characters}" Margin="8,4,0,0">
-                          <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                              <Grid Margin="0,2,0,2">
-                                <Grid.ColumnDefinitions>
-                                  <ColumnDefinition Width="*" />
-                                  <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <CheckBox
-                                  Content="{Binding CharacterName}"
-                                  IsChecked="{Binding IsSelected}"
-                                  Foreground="{StaticResource TextPrimary}"
-                                  FontSize="12"
-                                />
-                                <TextBlock
-                                  Grid.Column="1"
-                                  Text="{Binding StatusText}"
-                                  Foreground="{StaticResource TextSecondary}"
-                                  FontSize="11"
-                                  VerticalAlignment="Center"
-                                  Margin="8,0,0,0"
-                                />
-                              </Grid>
-                            </DataTemplate>
-                          </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                      </Expander>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
-              </StackPanel>
-            </StackPanel>
-          </ScrollViewer>
-
-          <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
-            <Button
-              Content="Save"
-              Style="{StaticResource ActionBtn}"
-              Background="{StaticResource LaunchGreen}"
-              Command="{Binding ConfirmSaveSelectionCommand}"
-              IsEnabled="{Binding CanConfirmSaveSelection}"
-              MinWidth="80"
-              Margin="0,0,8,0"
-            />
-            <Button
-              Content="Cancel"
-              Style="{StaticResource ActionBtn}"
-              Background="{StaticResource TextSecondary}"
-              Command="{Binding CancelSaveSelectionCommand}"
-              MinWidth="80"
-            />
-          </StackPanel>
         </Grid>
       </Border>
     </Border>
@@ -1204,120 +1102,6 @@ Action bars are NOT transferred by templates. Use the ActionBarSaver addon to sa
       </Border>
     </Border>
 
-    <!-- Version history overlay -->
-    <Border
-      Grid.Row="0"
-      Grid.RowSpan="9"
-      Background="#ee1a1a2e"
-      CornerRadius="8"
-      Visibility="{Binding IsVersionHistoryVisible, Converter={StaticResource BoolToVis}}"
-      Padding="20"
-      VerticalAlignment="Center"
-      HorizontalAlignment="Center"
-      MinWidth="360"
-    >
-      <Border Background="{StaticResource CardBg}" CornerRadius="8" Padding="16">
-        <Grid>
-          <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-          </Grid.RowDefinitions>
-          <TextBlock
-            Grid.Row="0"
-            FontSize="16"
-            FontWeight="Bold"
-            Foreground="{StaticResource TextPrimary}"
-            Margin="0,0,0,12"
-          >
-            <Run Text="Version History — " />
-            <Run Text="{Binding CurrentAccountName, Mode=OneWay}" />
-          </TextBlock>
-          <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" MaxHeight="300">
-            <StackPanel>
-              <ItemsControl x:Name="VersionsList" ItemsSource="{Binding Versions}">
-                <ItemsControl.Style>
-                  <Style TargetType="ItemsControl">
-                    <Style.Triggers>
-                      <Trigger Property="HasItems" Value="False">
-                        <Setter Property="Template">
-                          <Setter.Value>
-                            <ControlTemplate>
-                              <TextBlock
-                                Text="No versions saved yet."
-                                Foreground="{StaticResource TextSecondary}"
-                                FontSize="12"
-                                Margin="0,4"
-                              />
-                            </ControlTemplate>
-                          </Setter.Value>
-                        </Setter>
-                      </Trigger>
-                    </Style.Triggers>
-                  </Style>
-                </ItemsControl.Style>
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate>
-                    <Border
-                      Background="{StaticResource PanelBg}"
-                      CornerRadius="4"
-                      Padding="8,6"
-                      Margin="0,0,0,4"
-                    >
-                      <Grid>
-                        <Grid.ColumnDefinitions>
-                          <ColumnDefinition Width="*" />
-                          <ColumnDefinition Width="Auto" />
-                          <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock
-                          Grid.Column="0"
-                          Text="{Binding DisplayName}"
-                          Foreground="{StaticResource TextPrimary}"
-                          FontSize="12"
-                          VerticalAlignment="Center"
-                        />
-                        <Button
-                          Grid.Column="1"
-                          Content="Restore"
-                          Style="{StaticResource ActionBtn}"
-                          Background="{StaticResource LaunchGreen}"
-                          Command="{Binding DataContext.RestoreVersionCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                          CommandParameter="{Binding VersionId}"
-                          Padding="8,3"
-                          Margin="4,0"
-                          FontSize="11"
-                        />
-                        <Button
-                          Grid.Column="2"
-                          Content="Delete"
-                          Style="{StaticResource ActionBtn}"
-                          Background="#e17055"
-                          Command="{Binding DataContext.DeleteVersionCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                          CommandParameter="{Binding VersionId}"
-                          Padding="8,3"
-                          FontSize="11"
-                        />
-                      </Grid>
-                    </Border>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-            </StackPanel>
-          </ScrollViewer>
-          <Button
-            Grid.Row="2"
-            Content="Close"
-            Style="{StaticResource ActionBtn}"
-            Background="{StaticResource TextSecondary}"
-            Command="{Binding ToggleVersionHistoryCommand}"
-            HorizontalAlignment="Right"
-            MinWidth="80"
-            Margin="0,12,0,0"
-          />
-        </Grid>
-      </Border>
-    </Border>
     <!-- Create template (donor selection) overlay -->
     <Border
       Grid.Row="0"
@@ -1335,7 +1119,10 @@ Action bars are NOT transferred by templates. Use the ActionBarSaver addon to sa
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
           </Grid.RowDefinitions>
 
@@ -1523,7 +1310,11 @@ Action bars are NOT transferred by templates. Use the ActionBarSaver addon to sa
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
           </Grid.RowDefinitions>
 
@@ -1542,19 +1333,57 @@ Action bars are NOT transferred by templates. Use the ActionBarSaver addon to sa
               FontSize="12"
               Margin="0,0,0,4"
             >
-              <Run Text="Target " />
+              <Run Text="Find target " />
               <Run Text="{Binding TemplateToApply.KindLabel, Mode=OneWay, FallbackValue=item}" />
-              <Run Text=":" />
+              <Run Text=" (optional):" />
             </TextBlock>
             <TextBox
               Text="{Binding TargetSearchText, UpdateSourceTrigger=PropertyChanged}"
               FontSize="12"
               Padding="4,3"
-              ToolTip="Search"
+              ToolTip="Optional filter. Select the target in the list below."
             />
           </StackPanel>
 
-          <Grid Grid.Row="2">
+          <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8" VerticalAlignment="Center">
+            <TextBlock
+              Text="Restore scope:"
+              Foreground="{StaticResource TextSecondary}"
+              FontSize="12"
+              VerticalAlignment="Center"
+              Margin="0,0,8,0"
+            />
+            <ComboBox
+              Width="180"
+              SelectedValuePath="Tag"
+              SelectedValue="{Binding TemplateRestoreScope, Mode=TwoWay}"
+              FontSize="12"
+            >
+              <ComboBoxItem Content="Full" Tag="{x:Static templates:TemplateApplyScope.Full}" />
+              <ComboBoxItem Content="Cache only" Tag="{x:Static templates:TemplateApplyScope.CacheOnly}" />
+            </ComboBox>
+          </StackPanel>
+
+          <TextBlock
+            Grid.Row="3"
+            Text="A history snapshot is always created before apply to live WTF."
+            Foreground="{StaticResource TextSecondary}"
+            FontSize="12"
+            TextWrapping="Wrap"
+            Margin="0,0,0,8"
+          />
+
+          <CheckBox
+            Grid.Row="4"
+            Content="Full transfer (include account shared settings from Shared/)"
+            IsChecked="{Binding IncludeAccountScopedCharacterSettings}"
+            Foreground="{StaticResource TextSecondary}"
+            FontSize="12"
+            Margin="0,0,0,8"
+            Visibility="{Binding IsApplyingCharacterTemplate, Converter={StaticResource BoolToVis}}"
+          />
+
+          <Grid Grid.Row="5">
             <TreeView
               x:Name="TargetTreeView"
               ItemsSource="{Binding TargetCharacterTree}"
@@ -1605,7 +1434,7 @@ Action bars are NOT transferred by templates. Use the ActionBarSaver addon to sa
             </ListBox>
           </Grid>
 
-          <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+          <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
             <Button
               Content="Apply"
               Style="{StaticResource ActionBtn}"
@@ -1675,13 +1504,13 @@ Action bars are NOT transferred by templates. Use the ActionBarSaver addon to sa
       </Border>
     </Border>
 
-    <!-- Template version history overlay -->
+    <!-- Template history overlay -->
     <Border
       Grid.Row="0"
       Grid.RowSpan="9"
       Background="#ee1a1a2e"
       CornerRadius="8"
-      Visibility="{Binding IsTemplateVersionHistoryVisible, Converter={StaticResource BoolToVis}}"
+      Visibility="{Binding IsTemplateHistoryVisible, Converter={StaticResource BoolToVis}}"
       Padding="20"
       VerticalAlignment="Center"
       HorizontalAlignment="Center"
@@ -1696,15 +1525,23 @@ Action bars are NOT transferred by templates. Use the ActionBarSaver addon to sa
           </Grid.RowDefinitions>
           <TextBlock
             Grid.Row="0"
-            Text="Template Version History"
+            Text="{Binding TemplateHistoryTitle}"
             FontSize="16"
             FontWeight="Bold"
             Foreground="{StaticResource TextPrimary}"
-            Margin="0,0,0,12"
+            Margin="0,0,0,4"
+          />
+          <TextBlock
+            Grid.Row="0"
+            Text="{Binding TemplateHistorySubtitle}"
+            Foreground="{StaticResource TextSecondary}"
+            FontSize="11"
+            TextWrapping="Wrap"
+            Margin="0,24,0,12"
           />
           <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" MaxHeight="300">
             <StackPanel>
-              <ItemsControl ItemsSource="{Binding TemplateVersions}">
+              <ItemsControl ItemsSource="{Binding TemplateHistoryEntries}">
                 <ItemsControl.Style>
                   <Style TargetType="ItemsControl">
                     <Style.Triggers>
@@ -1713,7 +1550,7 @@ Action bars are NOT transferred by templates. Use the ActionBarSaver addon to sa
                           <Setter.Value>
                             <ControlTemplate>
                               <TextBlock
-                                Text="No versions saved yet."
+                                Text="No template history yet."
                                 Foreground="{StaticResource TextSecondary}"
                                 FontSize="12"
                                 Margin="0,4"
@@ -1739,20 +1576,30 @@ Action bars are NOT transferred by templates. Use the ActionBarSaver addon to sa
                           <ColumnDefinition Width="Auto" />
                           <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock
-                          Grid.Column="0"
-                          Text="{Binding DisplayName}"
-                          Foreground="{StaticResource TextPrimary}"
-                          FontSize="12"
-                          VerticalAlignment="Center"
-                        />
+                        <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                          <TextBlock
+                            Text="{Binding DisplayName}"
+                            Foreground="{StaticResource TextPrimary}"
+                            FontSize="12"
+                            FontWeight="SemiBold"
+                          />
+                          <TextBlock
+                            Foreground="{StaticResource TextSecondary}"
+                            FontSize="11"
+                            TextWrapping="Wrap"
+                          >
+                            <Run Text="{Binding Description}" />
+                            <Run Text=" | " />
+                            <Run Text="{Binding SizeBytes, StringFormat={}{0:N0} bytes}" />
+                          </TextBlock>
+                        </StackPanel>
                         <Button
                           Grid.Column="1"
                           Content="Restore"
                           Style="{StaticResource ActionBtn}"
                           Background="{StaticResource LaunchGreen}"
-                          Command="{Binding DataContext.RestoreTemplateVersionCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                          CommandParameter="{Binding VersionId}"
+                          Command="{Binding DataContext.RestoreTemplateHistoryEntryCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                          CommandParameter="{Binding}"
                           Padding="8,3"
                           Margin="4,0"
                           FontSize="11"
@@ -1762,8 +1609,8 @@ Action bars are NOT transferred by templates. Use the ActionBarSaver addon to sa
                           Content="Delete"
                           Style="{StaticResource ActionBtn}"
                           Background="#e17055"
-                          Command="{Binding DataContext.DeleteTemplateVersionCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                          CommandParameter="{Binding VersionId}"
+                          Command="{Binding DataContext.DeleteTemplateHistoryEntryCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                          CommandParameter="{Binding}"
                           Padding="8,3"
                           FontSize="11"
                         />
@@ -1779,7 +1626,7 @@ Action bars are NOT transferred by templates. Use the ActionBarSaver addon to sa
             Content="Close"
             Style="{StaticResource ActionBtn}"
             Background="{StaticResource TextSecondary}"
-            Command="{Binding CloseTemplateVersionHistoryCommand}"
+            Command="{Binding CloseTemplateHistoryCommand}"
             HorizontalAlignment="Right"
             MinWidth="80"
             Margin="0,12,0,0"

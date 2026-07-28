@@ -1,0 +1,2 @@
+#show
+/cast [@{{CHAR}}] ha-ha2

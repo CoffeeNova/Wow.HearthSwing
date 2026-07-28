@@ -1,0 +1,11 @@
+{
+  "Id": "cool",
+  "Name": "cool",
+  "Kind": "Character",
+  "SourceAccountName": "acc1",
+  "SourceRealmName": "Spineshatter",
+  "SourceCharacterName": "Coolchar",
+  "CreatedAtUtc": "2026-07-28T07:13:23.9914922+00:00",
+  "LastUpdatedUtc": "2026-07-28T07:13:24.0651093+00:00",
+  "SchemaVersion": 1
+}

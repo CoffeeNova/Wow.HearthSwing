@@ -7,6 +7,7 @@ internal static class TemplateLayout
 {
     public const string AccountFolderName = "Account";
     public const string CharacterFolderName = "Character";
+    public const string SharedFolderName = "Shared";
     public const string RealmTokenFolderName = "__REALM__";
     public const string CharTokenFolderName = "__CHAR__";
 }

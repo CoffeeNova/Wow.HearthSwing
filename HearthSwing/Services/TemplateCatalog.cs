@@ -9,12 +9,14 @@ namespace HearthSwing.Services;
 /// <summary>
 /// Stores character templates under <c>&lt;ProfilesPath&gt;/.templates/&lt;templateId&gt;</c> and
 /// exposes discovery, creation, rename and delete. The <c>.templates</c> folder is dot-prefixed so
-/// it is ignored by the saved-account enumeration.
+/// it is ignored by normal profile folder enumeration.
 /// </summary>
 public sealed class TemplateCatalog : ITemplateCatalog
 {
     public const string TemplatesFolderName = ".templates";
-    private const string TemplateVersionsFolderName = ".template-versions";
+    private const string HistoryFolderName = ".history";
+    private const string TemplateHistoryFolderName = "template";
+    private const string LegacyTemplateVersionsFolderName = ".template-versions";
     private const string MetadataFileName = "template.json";
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -41,8 +43,11 @@ public sealed class TemplateCatalog : ITemplateCatalog
 
     private string StorageRoot => Path.Combine(_settings.Current.ProfilesPath, TemplatesFolderName);
 
-    private string VersionsRoot =>
-        Path.Combine(_settings.Current.ProfilesPath, TemplateVersionsFolderName);
+    private string TemplateHistoryRoot =>
+        Path.Combine(_settings.Current.ProfilesPath, HistoryFolderName, TemplateHistoryFolderName);
+
+    private string LegacyTemplateVersionsRoot =>
+        Path.Combine(_settings.Current.ProfilesPath, LegacyTemplateVersionsFolderName);
 
     public List<TemplateSummary> DiscoverTemplates()
     {
@@ -64,8 +69,7 @@ public sealed class TemplateCatalog : ITemplateCatalog
 
     public TemplateSummary? GetById(string templateId)
     {
-        if (string.IsNullOrWhiteSpace(templateId))
-            throw new ArgumentException("Template id is required.", nameof(templateId));
+        EnsureSafeTemplateId(templateId, nameof(templateId));
 
         var rootPath = Path.Combine(StorageRoot, templateId);
         if (!_fs.DirectoryExists(rootPath))
@@ -156,8 +160,7 @@ public sealed class TemplateCatalog : ITemplateCatalog
 
     public void Delete(string templateId)
     {
-        if (string.IsNullOrWhiteSpace(templateId))
-            throw new ArgumentException("Template id is required.", nameof(templateId));
+        EnsureSafeTemplateId(templateId, nameof(templateId));
 
         var rootPath = Path.Combine(StorageRoot, templateId);
         if (_fs.DirectoryExists(rootPath))
@@ -166,17 +169,20 @@ public sealed class TemplateCatalog : ITemplateCatalog
             _fs.DeleteDirectory(rootPath, recursive: true);
         }
 
-        var versionsPath = Path.Combine(VersionsRoot, templateId);
-        if (_fs.DirectoryExists(versionsPath))
-            _fs.DeleteDirectory(versionsPath, recursive: true);
+        var templateHistoryPath = Path.Combine(TemplateHistoryRoot, templateId);
+        if (_fs.DirectoryExists(templateHistoryPath))
+            _fs.DeleteDirectory(templateHistoryPath, recursive: true);
+
+        var legacyVersionsPath = Path.Combine(LegacyTemplateVersionsRoot, templateId);
+        if (_fs.DirectoryExists(legacyVersionsPath))
+            _fs.DeleteDirectory(legacyVersionsPath, recursive: true);
 
         _logger.LogInformation("Deleted template '{TemplateId}'.", templateId);
     }
 
     private (string RootPath, TemplateMetadata Metadata) RequireTemplate(string templateId)
     {
-        if (string.IsNullOrWhiteSpace(templateId))
-            throw new ArgumentException("Template id is required.", nameof(templateId));
+        EnsureSafeTemplateId(templateId, nameof(templateId));
 
         var rootPath = Path.Combine(StorageRoot, templateId);
         var metadata =
@@ -276,6 +282,28 @@ public sealed class TemplateCatalog : ITemplateCatalog
 
         candidate = candidate.Replace(' ', '-').Trim('.', '-', '_');
         return string.IsNullOrWhiteSpace(candidate) ? "template" : candidate;
+    }
+
+    private static void EnsureSafeTemplateId(string templateId, string paramName)
+    {
+        if (string.IsNullOrWhiteSpace(templateId))
+            throw new ArgumentException("Template id is required.", paramName);
+
+        var normalized = templateId.Trim();
+        if (normalized is "." or "..")
+            throw new InvalidOperationException("Template id is invalid.");
+
+        if (
+            normalized.Contains(Path.DirectorySeparatorChar)
+            || normalized.Contains(Path.AltDirectorySeparatorChar)
+        )
+            throw new InvalidOperationException("Template id is invalid.");
+
+        foreach (var invalidChar in Path.GetInvalidFileNameChars())
+        {
+            if (normalized.Contains(invalidChar))
+                throw new InvalidOperationException("Template id is invalid.");
+        }
     }
 
     private void ClearReadOnlyAttributes(string directory)

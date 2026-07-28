@@ -8,8 +8,9 @@ namespace HearthSwing.Services;
 /// <summary>
 /// Applies templates onto live targets. Character templates are expanded into a staging folder
 /// (re-personalizing tokens with the target's names) and swapped into the target character folder
-/// with rollback. Account templates overlay the target account's shared settings, preserving the
-/// account's other realm/character folders.
+/// with rollback. Character templates also restore the account-level Shared folder so a full
+/// character restore replays the donor's shared settings. Account templates overlay the target
+/// account's shared settings, preserving the account's other realm/character folders.
 /// </summary>
 public sealed class TemplateApplyService : ITemplateApplyService
 {
@@ -37,7 +38,12 @@ public sealed class TemplateApplyService : ITemplateApplyService
         _logger = logger;
     }
 
-    public void ApplyAccountTemplate(TemplateSummary template, WowAccount target)
+    public void ApplyAccountTemplate(
+        TemplateSummary template,
+        WowAccount target,
+        TemplateApplyScope scope = TemplateApplyScope.Full,
+        bool useDirectorySwap = true
+    )
     {
         ArgumentNullException.ThrowIfNull(template);
         ArgumentNullException.ThrowIfNull(target);
@@ -49,16 +55,28 @@ public sealed class TemplateApplyService : ITemplateApplyService
                 $"Template '{template.Id}' has no account data to apply."
             );
 
-        var sourceSavedVariables = Path.Combine(templateAccountRoot, SavedVariablesFolderName);
-        if (_fs.DirectoryExists(sourceSavedVariables))
+        if (scope == TemplateApplyScope.Full && useDirectorySwap)
         {
-            _replacer.ReplaceDirectory(
-                sourceSavedVariables,
-                Path.Combine(target.FolderPath, SavedVariablesFolderName)
+            var sourceSavedVariables = Path.Combine(templateAccountRoot, SavedVariablesFolderName);
+            if (_fs.DirectoryExists(sourceSavedVariables))
+            {
+                _replacer.ReplaceDirectory(
+                    sourceSavedVariables,
+                    Path.Combine(target.FolderPath, SavedVariablesFolderName)
+                );
+            }
+
+            OverlayTopLevelFiles(templateAccountRoot, target.FolderPath);
+        }
+        else
+        {
+            ApplyScopedFiles(
+                templateAccountRoot,
+                target.FolderPath,
+                targetCharacter: null,
+                scope
             );
         }
-
-        OverlayTopLevelFiles(templateAccountRoot, target.FolderPath);
 
         _logger.LogInformation(
             "Applied account template '{Name}' to account '{Account}'.",
@@ -67,7 +85,13 @@ public sealed class TemplateApplyService : ITemplateApplyService
         );
     }
 
-    public void ApplyCharacterTemplate(TemplateSummary template, WowCharacter target)
+    public void ApplyCharacterTemplate(
+        TemplateSummary template,
+        WowCharacter target,
+        TemplateApplyScope scope = TemplateApplyScope.Full,
+        bool includeAccountScoped = true,
+        bool useDirectorySwap = true
+    )
     {
         ArgumentNullException.ThrowIfNull(template);
         ArgumentNullException.ThrowIfNull(target);
@@ -84,15 +108,27 @@ public sealed class TemplateApplyService : ITemplateApplyService
                 $"Template '{template.Id}' has no character data to apply."
             );
 
-        var staging = CreateStagingPath(target.FolderPath);
-        try
+        if (scope == TemplateApplyScope.Full && useDirectorySwap)
         {
-            ExpandTreeToStaging(templateCharRoot, staging, target);
-            _replacer.ReplaceDirectory(staging, target.FolderPath);
+            var staging = CreateStagingPath(target.FolderPath);
+            try
+            {
+                ExpandTreeToStaging(templateCharRoot, staging, target);
+                _replacer.ReplaceDirectory(staging, target.FolderPath);
+            }
+            finally
+            {
+                CleanupStaging(staging);
+            }
+
+            if (includeAccountScoped)
+                ApplySharedAccountTemplate(template, target, TemplateApplyScope.Full, true);
         }
-        finally
+        else
         {
-            CleanupStaging(staging);
+            ApplyScopedFiles(templateCharRoot, target.FolderPath, target, scope);
+            if (includeAccountScoped)
+                ApplySharedAccountTemplate(template, target, scope, useDirectorySwap);
         }
 
         _logger.LogInformation(
@@ -116,6 +152,89 @@ public sealed class TemplateApplyService : ITemplateApplyService
             ClearReadOnlyIfNeeded(destination);
             _fs.CopyFile(filePath, destination);
         }
+    }
+
+    private void ApplySharedAccountTemplate(
+        TemplateSummary template,
+        WowCharacter target,
+        TemplateApplyScope scope,
+        bool useDirectorySwap
+    )
+    {
+        var templateSharedRoot = Path.Combine(template.RootPath, TemplateLayout.SharedFolderName);
+        if (!_fs.DirectoryExists(templateSharedRoot))
+            return;
+
+        var targetAccountRoot = GetTargetAccountRoot(target.FolderPath);
+
+        if (scope == TemplateApplyScope.CacheOnly || !useDirectorySwap)
+        {
+            ApplyScopedFiles(templateSharedRoot, targetAccountRoot, targetCharacter: null, scope);
+            return;
+        }
+
+        var sourceSavedVariables = Path.Combine(templateSharedRoot, SavedVariablesFolderName);
+
+        if (_fs.DirectoryExists(sourceSavedVariables))
+        {
+            _replacer.ReplaceDirectory(
+                sourceSavedVariables,
+                Path.Combine(targetAccountRoot, SavedVariablesFolderName)
+            );
+        }
+
+        OverlayTopLevelFiles(templateSharedRoot, targetAccountRoot);
+    }
+
+    private void ApplyScopedFiles(
+        string sourceRoot,
+        string targetRoot,
+        WowCharacter? targetCharacter,
+        TemplateApplyScope scope
+    )
+    {
+        foreach (var filePath in _fs.GetFiles(sourceRoot, "*", SearchOption.AllDirectories))
+        {
+            var relativePath = Path.GetRelativePath(sourceRoot, filePath);
+            if (scope == TemplateApplyScope.CacheOnly && !IsTokenizableCacheFile(relativePath))
+                continue;
+
+            var destination = Path.Combine(targetRoot, relativePath);
+            EnsureParentDirectory(destination);
+            ClearReadOnlyIfNeeded(destination);
+
+            if (targetCharacter is not null && _classifier.ShouldTokenize(relativePath))
+            {
+                var content = _fs.ReadAllText(filePath);
+                var expanded = _tokenizer.Expand(
+                    content,
+                    targetCharacter.CharacterName,
+                    targetCharacter.RealmName
+                );
+                _fs.WriteAllText(destination, expanded);
+            }
+            else
+            {
+                _fs.WriteAllBytes(destination, _fs.ReadAllBytes(filePath));
+            }
+        }
+    }
+
+    private static bool IsTokenizableCacheFile(string relativePath)
+    {
+        return CacheFilePatterns.IsTokenizableCacheFileName(Path.GetFileName(relativePath));
+    }
+
+    private static string GetTargetAccountRoot(string targetCharacterFolder)
+    {
+        var realmFolder = Path.GetDirectoryName(targetCharacterFolder);
+        var accountRoot = realmFolder is null ? null : Path.GetDirectoryName(realmFolder);
+
+        return !string.IsNullOrEmpty(accountRoot)
+            ? accountRoot
+            : throw new InvalidOperationException(
+                $"Could not resolve account root from character folder '{targetCharacterFolder}'."
+            );
     }
 
     private void ExpandTreeToStaging(string sourceRoot, string stagingRoot, WowCharacter target)

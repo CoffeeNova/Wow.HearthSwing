@@ -5,22 +5,6 @@ namespace HearthSwing.Services;
 
 public sealed class CacheProtector : ICacheProtector
 {
-    private static readonly string[] CachePatterns =
-    [
-        "bindings-cache.wtf",
-        "config-cache.wtf",
-        "macros-cache.txt",
-        "edit-mode-cache-account.txt",
-        "edit-mode-cache-character.txt",
-        "tts-cache-account.txt",
-        "tts-cache-character.txt",
-        "chat-cache.txt",
-        "chat-frontend-cache.txt",
-        "flagged-cache-account.txt",
-        "layout-local.txt",
-        "cache.md5",
-    ];
-
     private readonly IFileSystem _fs;
     private readonly ILogger<CacheProtector> _logger;
     private readonly Dictionary<string, byte[]> _backups = new(StringComparer.OrdinalIgnoreCase);
@@ -142,7 +126,7 @@ public sealed class CacheProtector : ICacheProtector
         if (!_fs.DirectoryExists(directory))
             return;
 
-        foreach (var pattern in CachePatterns)
+        foreach (var pattern in CacheFilePatterns.All)
         {
             try
             {
