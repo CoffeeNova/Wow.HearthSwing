@@ -9,8 +9,8 @@ switching World of Warcraft Classic Anniversary WTF profiles. Implement the
 feature according to the prepared plan.
 
 ## Read First
-1. `docs/templates-ux-improvement-plan.md` is the complete plan and source of truth. Focus on section 3 (live restore), section 4 (the unified Profiles tab), section 5 (architecture and signatures), and section 8 (phases).
-2. `.github/copilot-instructions.md` and `CLAUDE.md` define the C# style, MVVM, DI, and testing conventions. Follow them strictly.
+1. `.ai/docs/templates-ux-improvement-plan.md` is the complete plan and source of truth. Focus on section 3 (live restore), section 4 (the unified Profiles tab), section 5 (architecture and signatures), and section 8 (phases).
+2. `AGENTS.md` (repo root) is the entry point; `.ai/CONTEXT.md` and `.ai/ARCHITECTURE.md` define the C# style, MVVM, DI, and testing conventions. Follow them strictly.
 
 ## Task Summary
 Make templates the primary way to transfer settings and merge the Accounts and

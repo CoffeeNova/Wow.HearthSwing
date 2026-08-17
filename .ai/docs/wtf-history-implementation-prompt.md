@@ -10,8 +10,8 @@ managing World of Warcraft Classic Anniversary settings in the `WTF` folder.
 Complete the large refactor according to the prepared plan.
 
 ## Read First
-1. `docs/wtf-history-redesign-plan.md` is the complete plan and source of truth. Focus on section 0 (fixed decisions), section 2 (the history service), sections 3-4 (mutation points and orchestrators), sections 5-6 (what to remove and retain), section 7 (UI), and section 12 (phases).
-2. `.github/copilot-instructions.md` and `CLAUDE.md` define the C# style, MVVM, DI, and testing conventions. Follow them strictly.
+1. `.ai/docs/wtf-history-redesign-plan.md` is the complete plan and source of truth. Focus on section 0 (fixed decisions), section 2 (the history service), sections 3-4 (mutation points and orchestrators), sections 5-6 (what to remove and retain), section 7 (UI), and section 12 (phases).
+2. `AGENTS.md` (repo root) is the entry point; `.ai/CONTEXT.md` and `.ai/ARCHITECTURE.md` define the C# style, MVVM, DI, and testing conventions. Follow them strictly.
 
 ## Task Summary
 Remove saved accounts and switching entirely. Transfer settings **only through

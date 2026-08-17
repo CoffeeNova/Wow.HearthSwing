@@ -363,8 +363,8 @@ on real `WTF`.
 
 **Phase 5 - Polishing.**
 8. Empty states, confirmations, toasts, hint texts for the new model.
-9. Optional cleanup of obsolete catalogs; update `CLAUDE.md`/
-   `copilot-instructions.md` for the new conceptual model.
+9. Optional cleanup of obsolete catalogs; update `AGENTS.md`/
+   `.ai/` docs for the new conceptual model.
 
 ---
 
