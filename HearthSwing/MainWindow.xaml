@@ -302,12 +302,17 @@
             FontWeight="SemiBold"
           />
           <TextBlock
-            Text="Templates are the only transfer mechanism. Create from a live character or account, apply to a target, and HearthSwing will create history snapshots before changing WTF."
             Foreground="{StaticResource TextSecondary}"
             FontSize="11"
             TextWrapping="Wrap"
             Margin="0,2,0,0"
-          />
+          >
+            A template is a saved copy of a character's or account's WTF settings
+            (macros, keybindings, Edit Mode layout, addon SavedVariables, client config).
+            Capture it from a live character or account, then apply it to any target to
+            copy those settings over. A history snapshot is always taken before an apply,
+            so changes remain recoverable.
+          </TextBlock>
         </StackPanel>
 
         <WrapPanel Grid.Row="1" Margin="0,10,0,6">
@@ -1375,13 +1380,14 @@ Delete old history entries manually when you no longer need them, or rely on the
 
           <CheckBox
             Grid.Row="4"
-            Content="Full transfer (include account shared settings from Shared/)"
             IsChecked="{Binding IncludeAccountScopedCharacterSettings}"
             Foreground="{StaticResource TextSecondary}"
             FontSize="12"
             Margin="0,0,0,8"
             Visibility="{Binding IsApplyingCharacterTemplate, Converter={StaticResource BoolToVis}}"
-          />
+          >
+            <TextBlock Text="Full transfer (include account shared settings from Shared/)" TextWrapping="Wrap" />
+          </CheckBox>
 
           <Grid Grid.Row="5">
             <TreeView
