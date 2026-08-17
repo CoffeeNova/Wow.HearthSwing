@@ -1,0 +1,11 @@
+{
+  "Id": "acc1",
+  "Name": "acc1",
+  "Kind": "Account",
+  "SourceAccountName": "acc1",
+  "SourceRealmName": null,
+  "SourceCharacterName": null,
+  "CreatedAtUtc": "2026-07-28T07:13:15.2537914+00:00",
+  "LastUpdatedUtc": "2026-07-28T07:13:15.2917725+00:00",
+  "SchemaVersion": 1
+}

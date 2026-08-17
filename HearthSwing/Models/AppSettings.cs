@@ -12,11 +12,15 @@ public sealed class AppSettings
 
     public int UnlockDelaySeconds { get; set; } = 120;
 
-    public bool VersioningEnabled { get; set; } = true;
+    public int MaxHistoryEntriesPerTarget { get; set; } = 20;
 
-    public int MaxVersionsPerProfile { get; set; } = 5;
+    public double? WindowLeft { get; set; }
 
-    public bool SaveOnExitEnabled { get; set; } = true;
+    public double? WindowTop { get; set; }
 
-    public bool AutoSaveOnExit { get; set; }
+    public double? WindowWidth { get; set; }
+
+    public double? WindowHeight { get; set; }
+
+    public bool StartMaximized { get; set; }
 }
