@@ -3,6 +3,7 @@ name: Build & Release
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -31,13 +32,20 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          [xml]$csproj = Get-Content ${{ env.PROJECT }}
-          $base = $csproj.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
-          $parts = $base.Split('.')
-          $version = "$($parts[0]).$($parts[1]).${{ github.run_number }}"
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $tag = "${{ github.ref_name }}"
+            $version = $tag.TrimStart('v')
+            Write-Host "Version (from tag): $version"
+          } else {
+            [xml]$csproj = Get-Content ${{ env.PROJECT }}
+            $base = $csproj.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+            $parts = $base.Split('.')
+            $version = "$($parts[0]).$($parts[1]).${{ github.run_number }}"
+            $tag = "v$version"
+            Write-Host "Version: $version"
+          }
           "VERSION=$version" >> $env:GITHUB_OUTPUT
-          "TAG=v$version" >> $env:GITHUB_OUTPUT
-          Write-Host "Version: $version"
+          "TAG=$tag" >> $env:GITHUB_OUTPUT
 
       - name: Restore
         run: dotnet restore ${{ env.SOLUTION }}
@@ -58,7 +66,7 @@ jobs:
           path: ${{ env.PUBLISH_DIR }}
 
       - name: Create GitHub Release
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' || github.ref_type == 'tag'
         shell: pwsh
         run: |
           $tag = "${{ steps.version.outputs.TAG }}"
